@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { signOut, useSession } from "next-auth/react";
 import type { OccupancySnapshot } from "@/lib/storeganise";
 
 const REFRESH_INTERVAL_MS = 60_000;
@@ -29,6 +30,7 @@ function Meter({ value }: { value: number }) {
 }
 
 export default function Home() {
+  const { data: session } = useSession();
   const [snapshot, setSnapshot] = useState<OccupancySnapshot | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -68,17 +70,31 @@ export default function Home() {
   return (
     <div className="min-h-screen px-6 py-10 sm:px-10">
       <div className="mx-auto max-w-3xl">
-        <header className="mb-8 flex items-baseline justify-between">
+        <header className="mb-8 flex items-baseline justify-between gap-4">
           <h1 className="text-lg font-semibold" style={{ color: "var(--text-primary)" }}>
             Occupancy rate
           </h1>
-          <button
-            onClick={load}
-            className="text-sm hover:underline"
-            style={{ color: "var(--text-secondary)" }}
-          >
-            Refresh now
-          </button>
+          <div className="flex items-baseline gap-4">
+            <button
+              onClick={load}
+              className="text-sm hover:underline"
+              style={{ color: "var(--text-secondary)" }}
+            >
+              Refresh now
+            </button>
+            {session?.user?.email && (
+              <span className="hidden text-sm sm:inline" style={{ color: "var(--text-muted)" }}>
+                {session.user.email}
+              </span>
+            )}
+            <button
+              onClick={() => signOut({ redirectTo: "/login" })}
+              className="text-sm hover:underline"
+              style={{ color: "var(--text-secondary)" }}
+            >
+              Sign out
+            </button>
+          </div>
         </header>
 
         {error && (
