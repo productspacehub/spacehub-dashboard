@@ -1,4 +1,4 @@
-const BASE_URL = process.env.STOREGANISE_BASE_URL ?? "https://spacehub.storeganise.com";
+const BASE_URL = process.env.STOREGANISE_BASE_URL ?? "https://spacehub.storeganise.com/api";
 
 type UnitState = "archived" | "blocked" | "available" | "reserved" | "occupied";
 
