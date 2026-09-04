@@ -1,3 +1,4 @@
+import Image from "next/image";
 import { signIn } from "@/auth";
 
 export default async function LoginPage({
@@ -14,11 +15,16 @@ export default async function LoginPage({
         className="w-full max-w-sm rounded-2xl border p-8 text-center"
         style={{ background: "var(--surface-1)", borderColor: "var(--gridline)" }}
       >
-        <h1 className="mb-2 text-lg font-semibold" style={{ color: "var(--text-primary)" }}>
-          Spacehub Occupancy Dashboard
-        </h1>
+        <Image
+          src="/spacehub-logo.webp"
+          alt="SpaceHub"
+          width={168}
+          height={50}
+          priority
+          className="mx-auto mb-4"
+        />
         <p className="mb-6 text-sm" style={{ color: "var(--text-secondary)" }}>
-          Login dengan akun Google @spacehub.id untuk mengakses dashboard.
+          Login dengan akun Google @spacehub.id untuk mengakses Occupancy Dashboard.
         </p>
 
         {error && (
@@ -35,8 +41,8 @@ export default async function LoginPage({
         >
           <button
             type="submit"
-            className="w-full rounded-lg px-4 py-2 text-sm font-medium text-white"
-            style={{ background: "var(--series-1)" }}
+            className="w-full rounded-lg px-4 py-2 text-sm font-semibold"
+            style={{ background: "var(--series-1)", color: "var(--background)" }}
           >
             Sign in with Google
           </button>

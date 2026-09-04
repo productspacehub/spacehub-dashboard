@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import Image from "next/image";
 import { signOut, useSession } from "next-auth/react";
 import type { OccupancySnapshot } from "@/lib/storeganise";
 
@@ -70,10 +71,20 @@ export default function Home() {
   return (
     <div className="min-h-screen px-6 py-10 sm:px-10">
       <div className="mx-auto max-w-3xl">
-        <header className="mb-8 flex items-baseline justify-between gap-4">
-          <h1 className="text-lg font-semibold" style={{ color: "var(--text-primary)" }}>
-            Occupancy rate
-          </h1>
+        <header className="mb-8 flex items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <Image src="/spacehub-logo.webp" alt="SpaceHub" width={121} height={36} priority />
+            <span
+              className="hidden h-6 w-px sm:block"
+              style={{ background: "var(--gridline)" }}
+            />
+            <h1
+              className="hidden text-sm font-medium sm:block"
+              style={{ color: "var(--text-secondary)" }}
+            >
+              Occupancy Rate
+            </h1>
+          </div>
           <div className="flex items-baseline gap-4">
             <button
               onClick={load}
