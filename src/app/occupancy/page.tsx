@@ -81,7 +81,7 @@ export default function OccupancyDetailPage() {
   const showReasonColumn = selectedState === "blocked";
   const showContactColumns = selectedState === "reserved";
   const columnCount =
-    2 + (showEmailColumn ? 4 : showReasonColumn ? 1 : showContactColumns ? 4 : 0);
+    2 + (showEmailColumn ? 4 : showReasonColumn ? 2 : showContactColumns ? 4 : 0);
 
   return (
     <div className="min-h-screen px-6 py-10 sm:px-10">
@@ -241,9 +241,14 @@ export default function OccupancyDetailPage() {
                         </>
                       )}
                       {showReasonColumn && (
-                        <th className="px-4 py-3 font-medium" style={{ color: "var(--text-secondary)" }}>
-                          Blocked reason
-                        </th>
+                        <>
+                          <th className="px-4 py-3 font-medium" style={{ color: "var(--text-secondary)" }}>
+                            Blocked reason
+                          </th>
+                          <th className="px-4 py-3 font-medium" style={{ color: "var(--text-secondary)" }}>
+                            Blocked for
+                          </th>
+                        </>
                       )}
                       {showContactColumns && (
                         <>
@@ -291,9 +296,14 @@ export default function OccupancyDetailPage() {
                           </>
                         )}
                         {showReasonColumn && (
-                          <td className="px-4 py-2" style={{ color: "var(--text-secondary)" }}>
-                            {unit.blockedReason ?? "—"}
-                          </td>
+                          <>
+                            <td className="px-4 py-2" style={{ color: "var(--text-secondary)" }}>
+                              {unit.blockedReason ?? "—"}
+                            </td>
+                            <td className="px-4 py-2" style={{ color: "var(--text-secondary)" }}>
+                              {unit.blockedDuration ?? "—"}
+                            </td>
+                          </>
                         )}
                         {showContactColumns && (
                           <>

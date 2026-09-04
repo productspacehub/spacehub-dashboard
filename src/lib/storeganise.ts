@@ -30,6 +30,12 @@ export type StoreganiseUnitRental = {
   };
 };
 
+export type StoreganiseUnitAction = {
+  id: string;
+  type: string;
+  date: string;
+};
+
 export type StoreganiseInvoice = {
   id: string;
   sid: string;
@@ -140,6 +146,49 @@ async function fetchRecentInvoices(): Promise<StoreganiseInvoice[]> {
   return paginate<StoreganiseInvoice>(`/v1/admin/invoices?start=${start}`);
 }
 
+// There's no bulk/multi-unit way to read a unit's action history, so this is one API
+// call per currently-blocked unit — acceptable since blocked units are a small subset
+// of the total (tens, not hundreds). Actions come back newest-first, so the first
+// "unit.block" entry found is the most recent block (what we want for a unit that's
+// still blocked now). Fails soft: a unit whose history can't be read just gets no date.
+async function fetchBlockedSince(unitId: string): Promise<string | undefined> {
+  try {
+    const actions = await paginate<StoreganiseUnitAction>(`/v1/admin/units/${unitId}/actions`);
+    return actions.find((a) => a.type === "unit.block")?.date;
+  } catch {
+    return undefined;
+  }
+}
+
+function formatDurationSince(startIso: string, now: Date): string {
+  // Walk forward year-by-year then month-by-month using native Date arithmetic (which
+  // normalizes overflow, e.g. Jan 31 + 1 month lands on Mar 3, not an invalid Feb 31) —
+  // this avoids the negative-day-count bug a naive component-subtraction approach hits
+  // on start dates near month-end (e.g. Jan 31 to Mar 1).
+  let cursor = new Date(startIso);
+  let years = 0;
+  let months = 0;
+
+  for (;;) {
+    const next = new Date(cursor);
+    next.setFullYear(next.getFullYear() + 1);
+    if (next > now) break;
+    cursor = next;
+    years += 1;
+  }
+  for (;;) {
+    const next = new Date(cursor);
+    next.setMonth(next.getMonth() + 1);
+    if (next > now) break;
+    cursor = next;
+    months += 1;
+  }
+  const days = Math.round((now.getTime() - cursor.getTime()) / 86_400_000);
+
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${pad(years)} Tahun ${pad(months)} Bulan ${pad(days)} Hari`;
+}
+
 export async function getOccupancySnapshot(): Promise<OccupancySnapshot> {
   const [sites, units] = await Promise.all([fetchSites(), fetchUnits()]);
 
@@ -209,6 +258,8 @@ export type UnitDetail = {
   siteName: string;
   state: UnitState;
   blockedReason?: string;
+  blockedSince?: string;
+  blockedDuration?: string;
   ownerName?: string;
   ownerPhone?: string;
   ownerEmail?: string;
@@ -250,6 +301,13 @@ export async function getUnitsDetail(): Promise<UnitsDetail> {
   const rentalIdByUnitId = new Map(occupiedRentals.map((r) => [r.unitId, r.id]));
   const reservedAtByUnitId = new Map(reservedRentals.map((r) => [r.unitId, r.created]));
 
+  const blockedUnitIds = units.filter((u) => u.state === "blocked").map((u) => u.id);
+  const blockedSinceEntries = await Promise.all(
+    blockedUnitIds.map(async (id) => [id, await fetchBlockedSince(id)] as const)
+  );
+  const blockedSinceByUnitId = new Map(blockedSinceEntries.filter(([, date]) => date));
+  const now = new Date();
+
   const latestInvoiceByRentalId = new Map<string, StoreganiseInvoice>();
   for (const invoice of recentInvoices) {
     const current = latestInvoiceByRentalId.get(invoice.unitRentalId);
@@ -263,6 +321,7 @@ export async function getUnitsDetail(): Promise<UnitsDetail> {
     const invoice = rentalId ? latestInvoiceByRentalId.get(rentalId) : undefined;
     const owner =
       unit.state === "occupied" || unit.state === "reserved" ? ownerByUnitId.get(unit.id) : undefined;
+    const blockedSince = unit.state === "blocked" ? blockedSinceByUnitId.get(unit.id) : undefined;
 
     return {
       id: unit.id,
@@ -271,6 +330,8 @@ export async function getUnitsDetail(): Promise<UnitsDetail> {
       siteName: siteNameById.get(unit.siteId) ?? unit.siteId,
       state: unit.state,
       blockedReason: unit.state === "blocked" ? unit.blockedReason : undefined,
+      blockedSince,
+      blockedDuration: blockedSince ? formatDurationSince(blockedSince, now) : undefined,
       ownerName: owner?.name,
       ownerPhone: owner?.phone,
       ownerEmail: owner?.email,

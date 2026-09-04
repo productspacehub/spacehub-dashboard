@@ -61,6 +61,19 @@ Open [http://localhost:3000](http://localhost:3000) — you'll be redirected to
   latest invoice for any actively-occupied unit given they're billed
   monthly; a unit with nothing in that window simply shows no invoice.
   The invoice "number" customers see is the `sid` field, not `id`.
+- The Blocked tab shows how long a unit has been blocked ("blockedDuration",
+  formatted as "xx Tahun xx Bulan xx Hari"). There's no `blockedAt` field on
+  the Unit itself — the timestamp comes from that unit's action history,
+  `GET /v1/admin/units/:unitId/actions`, finding the most recent entry with
+  `type: "unit.block"` (actions come back newest-first). This is a separate
+  API call per currently-blocked unit since that endpoint has no bulk/
+  multi-unit form — acceptable since blocked units are a small subset of the
+  total. `formatDurationSince` walks forward year-by-year then month-by-month
+  with native Date arithmetic rather than subtracting date components
+  directly, to avoid a negative-day-count bug that a naive approach hits for
+  start dates near month-end (e.g. Jan 31 to Mar 1). Some blocked units may
+  have no `unit.block` entry in their history (blocked before this action log
+  existed, or via a path that doesn't log it) — those just show no duration.
 - `src/auth.ts` configures Auth.js (NextAuth v5) with a Google provider; its
   `signIn` callback rejects any email not ending in `@spacehub.id`.
 - `src/proxy.ts` (Next.js's proxy/middleware convention) requires a valid
