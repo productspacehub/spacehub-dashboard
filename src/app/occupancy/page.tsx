@@ -80,7 +80,7 @@ export default function OccupancyDetailPage() {
 
   const showEmailColumn = selectedState === "occupied";
   const showReasonColumn = selectedState === "blocked";
-  const columnCount = 2 + (showEmailColumn || showReasonColumn ? 1 : 0);
+  const columnCount = 2 + (showEmailColumn ? 4 : showReasonColumn ? 1 : 0);
 
   return (
     <div className="min-h-screen px-6 py-10 sm:px-10">
@@ -224,9 +224,20 @@ export default function OccupancyDetailPage() {
                         Unit
                       </th>
                       {showEmailColumn && (
-                        <th className="px-4 py-3 font-medium" style={{ color: "var(--text-secondary)" }}>
-                          Customer email
-                        </th>
+                        <>
+                          <th className="px-4 py-3 font-medium" style={{ color: "var(--text-secondary)" }}>
+                            Customer email
+                          </th>
+                          <th className="px-4 py-3 font-medium" style={{ color: "var(--text-secondary)" }}>
+                            Invoice #
+                          </th>
+                          <th className="px-4 py-3 font-medium" style={{ color: "var(--text-secondary)" }}>
+                            Invoice status
+                          </th>
+                          <th className="px-4 py-3 font-medium" style={{ color: "var(--text-secondary)" }}>
+                            Paid on
+                          </th>
+                        </>
                       )}
                       {showReasonColumn && (
                         <th className="px-4 py-3 font-medium" style={{ color: "var(--text-secondary)" }}>
@@ -245,9 +256,22 @@ export default function OccupancyDetailPage() {
                           {unit.name}
                         </td>
                         {showEmailColumn && (
-                          <td className="px-4 py-2" style={{ color: "var(--text-secondary)" }}>
-                            {unit.ownerEmail ?? "—"}
-                          </td>
+                          <>
+                            <td className="px-4 py-2" style={{ color: "var(--text-secondary)" }}>
+                              {unit.ownerEmail ?? "—"}
+                            </td>
+                            <td className="px-4 py-2" style={{ color: "var(--text-secondary)" }}>
+                              {unit.latestInvoice?.number ?? "—"}
+                            </td>
+                            <td className="px-4 py-2" style={{ color: "var(--text-secondary)" }}>
+                              {unit.latestInvoice?.state ?? "—"}
+                            </td>
+                            <td className="px-4 py-2" style={{ color: "var(--text-secondary)" }}>
+                              {unit.latestInvoice?.paidAt
+                                ? new Date(unit.latestInvoice.paidAt).toLocaleDateString()
+                                : "—"}
+                            </td>
+                          </>
                         )}
                         {showReasonColumn && (
                           <td className="px-4 py-2" style={{ color: "var(--text-secondary)" }}>

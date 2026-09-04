@@ -28,6 +28,15 @@ export type StoreganiseUnitRental = {
   };
 };
 
+export type StoreganiseInvoice = {
+  id: string;
+  sid: string;
+  unitRentalId: string;
+  state: string;
+  startDate?: string;
+  paid?: string;
+};
+
 export type SiteOccupancy = {
   siteId: string;
   siteName: string;
@@ -115,6 +124,20 @@ async function fetchOccupiedRentalsWithOwner(): Promise<StoreganiseUnitRental[]>
   return paginate<StoreganiseUnitRental>("/v1/admin/unit-rentals?state=occupied&include=owner");
 }
 
+// Invoices don't support filtering by multiple unitRentalIds at once (only a single
+// unitRentalId per request), so fetching one-by-one for every occupied unit doesn't scale.
+// Instead, fetch every invoice created in a recent window and match them up client-side.
+// Rentals are invoiced roughly monthly, so 60 days comfortably covers the latest invoice
+// for any actively-occupied unit; a unit with nothing in this window just shows no invoice.
+const RECENT_INVOICE_WINDOW_DAYS = 60;
+
+async function fetchRecentInvoices(): Promise<StoreganiseInvoice[]> {
+  const since = new Date();
+  since.setDate(since.getDate() - RECENT_INVOICE_WINDOW_DAYS);
+  const start = since.toISOString().slice(0, 10);
+  return paginate<StoreganiseInvoice>(`/v1/admin/invoices?start=${start}`);
+}
+
 export async function getOccupancySnapshot(): Promise<OccupancySnapshot> {
   const [sites, units] = await Promise.all([fetchSites(), fetchUnits()]);
 
@@ -171,6 +194,12 @@ export async function getOccupancySnapshot(): Promise<OccupancySnapshot> {
 
 type NonArchivedState = Exclude<UnitState, "archived">;
 
+export type LatestInvoice = {
+  number: string;
+  state: string;
+  paidAt?: string;
+};
+
 export type UnitDetail = {
   id: string;
   name: string;
@@ -179,6 +208,7 @@ export type UnitDetail = {
   state: UnitState;
   blockedReason?: string;
   ownerEmail?: string;
+  latestInvoice?: LatestInvoice;
 };
 
 export type StatusBreakdown = {
@@ -198,26 +228,45 @@ export type UnitsDetail = {
 const NON_ARCHIVED_STATES: NonArchivedState[] = ["available", "occupied", "reserved", "blocked"];
 
 export async function getUnitsDetail(): Promise<UnitsDetail> {
-  const [sites, units, occupiedRentals] = await Promise.all([
+  const [sites, units, occupiedRentals, recentInvoices] = await Promise.all([
     fetchSites(),
     fetchUnits(),
     fetchOccupiedRentalsWithOwner(),
+    fetchRecentInvoices(),
   ]);
 
   const siteNameById = new Map(sites.map((s) => [s.id, pickTitle(s.title, s.code ?? s.id)]));
   const ownerEmailByUnitId = new Map(
     occupiedRentals.filter((r) => r.owner?.email).map((r) => [r.unitId, r.owner!.email as string])
   );
+  const rentalIdByUnitId = new Map(occupiedRentals.map((r) => [r.unitId, r.id]));
 
-  const unitDetails: UnitDetail[] = units.map((unit) => ({
-    id: unit.id,
-    name: unit.name ?? unit.id,
-    siteId: unit.siteId,
-    siteName: siteNameById.get(unit.siteId) ?? unit.siteId,
-    state: unit.state,
-    blockedReason: unit.state === "blocked" ? unit.blockedReason : undefined,
-    ownerEmail: unit.state === "occupied" ? ownerEmailByUnitId.get(unit.id) : undefined,
-  }));
+  const latestInvoiceByRentalId = new Map<string, StoreganiseInvoice>();
+  for (const invoice of recentInvoices) {
+    const current = latestInvoiceByRentalId.get(invoice.unitRentalId);
+    if (!current || (invoice.startDate ?? "") > (current.startDate ?? "")) {
+      latestInvoiceByRentalId.set(invoice.unitRentalId, invoice);
+    }
+  }
+
+  const unitDetails: UnitDetail[] = units.map((unit) => {
+    const rentalId = rentalIdByUnitId.get(unit.id);
+    const invoice = rentalId ? latestInvoiceByRentalId.get(rentalId) : undefined;
+
+    return {
+      id: unit.id,
+      name: unit.name ?? unit.id,
+      siteId: unit.siteId,
+      siteName: siteNameById.get(unit.siteId) ?? unit.siteId,
+      state: unit.state,
+      blockedReason: unit.state === "blocked" ? unit.blockedReason : undefined,
+      ownerEmail: unit.state === "occupied" ? ownerEmailByUnitId.get(unit.id) : undefined,
+      latestInvoice:
+        unit.state === "occupied" && invoice
+          ? { number: invoice.sid, state: invoice.state, paidAt: invoice.state === "paid" ? invoice.paid : undefined }
+          : undefined,
+    };
+  });
 
   const archivedUnits = unitDetails.filter((u) => u.state === "archived").length;
   const nonArchived = unitDetails.filter((u) => u.state !== "archived");

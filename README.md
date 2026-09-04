@@ -42,7 +42,17 @@ Open [http://localhost:3000](http://localhost:3000) — you'll be redirected to
   exposes this as a status breakdown (percentages exclude archived units from
   the total) plus a flat per-unit list; `src/app/occupancy/page.tsx` renders it
   with status tabs, a site filter, and a table whose columns adapt to the
-  selected status (customer email for Occupied, blocked reason for Blocked).
+  selected status (customer email + latest invoice for Occupied, blocked
+  reason for Blocked).
+- The latest invoice (number, state, paid date) shown on the Occupied tab
+  comes from `GET /api/v1/admin/invoices?start=<60 days ago>`, grouped
+  client-side by `unitRentalId` and matched back to units via the same
+  occupied-rentals fetch used for owner email. Invoices only support
+  filtering by a single `unitRentalId` per request, so fetching one per
+  occupied unit wouldn't scale — a 60-day window comfortably covers the
+  latest invoice for any actively-occupied unit given they're billed
+  monthly; a unit with nothing in that window simply shows no invoice.
+  The invoice "number" customers see is the `sid` field, not `id`.
 - `src/auth.ts` configures Auth.js (NextAuth v5) with a Google provider; its
   `signIn` callback rejects any email not ending in `@spacehub.id`.
 - `src/proxy.ts` (Next.js's proxy/middleware convention) requires a valid
