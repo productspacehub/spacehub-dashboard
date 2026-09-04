@@ -81,7 +81,7 @@ export default function OccupancyDetailPage() {
   const showReasonColumn = selectedState === "blocked";
   const showContactColumns = selectedState === "reserved";
   const columnCount =
-    2 + (showEmailColumn ? 4 : showReasonColumn ? 1 : showContactColumns ? 3 : 0);
+    2 + (showEmailColumn ? 4 : showReasonColumn ? 1 : showContactColumns ? 4 : 0);
 
   return (
     <div className="min-h-screen px-6 py-10 sm:px-10">
@@ -256,6 +256,9 @@ export default function OccupancyDetailPage() {
                           <th className="px-4 py-3 font-medium" style={{ color: "var(--text-secondary)" }}>
                             Email
                           </th>
+                          <th className="px-4 py-3 font-medium" style={{ color: "var(--text-secondary)" }}>
+                            Reserved at
+                          </th>
                         </>
                       )}
                     </tr>
@@ -302,6 +305,9 @@ export default function OccupancyDetailPage() {
                             </td>
                             <td className="px-4 py-2" style={{ color: "var(--text-secondary)" }}>
                               {unit.ownerEmail ?? "—"}
+                            </td>
+                            <td className="px-4 py-2" style={{ color: "var(--text-secondary)" }}>
+                              {unit.reservedAt ? new Date(unit.reservedAt).toLocaleString() : "—"}
                             </td>
                           </>
                         )}

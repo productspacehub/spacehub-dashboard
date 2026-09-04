@@ -49,7 +49,9 @@ Open [http://localhost:3000](http://localhost:3000) — you'll be redirected to
   for Reserved (so sales can follow up on payment before move-in).
 - Reserved units resolve owner contact info the same way as Occupied ones —
   `fetchRentalsWithOwner` is called for both `state=occupied` and
-  `state=reserved` against `GET /v1/admin/unit-rentals?include=owner`.
+  `state=reserved` against `GET /v1/admin/unit-rentals?include=owner`. The
+  Reserved tab also shows when the reservation was made, from that same
+  rental's `created` field.
 - The latest invoice (number, state, paid date) shown on the Occupied tab
   comes from `GET /api/v1/admin/invoices?start=<60 days ago>`, grouped
   client-side by `unitRentalId` and matched back to units via the same

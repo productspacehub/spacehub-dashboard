@@ -22,6 +22,7 @@ export type StoreganiseUnitRental = {
   siteId: string;
   ownerId: string;
   state: string;
+  created?: string;
   owner?: {
     email?: string;
     name?: string;
@@ -211,6 +212,7 @@ export type UnitDetail = {
   ownerName?: string;
   ownerPhone?: string;
   ownerEmail?: string;
+  reservedAt?: string;
   latestInvoice?: LatestInvoice;
 };
 
@@ -246,6 +248,7 @@ export async function getUnitsDetail(): Promise<UnitsDetail> {
     if (rental.owner) ownerByUnitId.set(rental.unitId, rental.owner);
   }
   const rentalIdByUnitId = new Map(occupiedRentals.map((r) => [r.unitId, r.id]));
+  const reservedAtByUnitId = new Map(reservedRentals.map((r) => [r.unitId, r.created]));
 
   const latestInvoiceByRentalId = new Map<string, StoreganiseInvoice>();
   for (const invoice of recentInvoices) {
@@ -271,6 +274,7 @@ export async function getUnitsDetail(): Promise<UnitsDetail> {
       ownerName: owner?.name,
       ownerPhone: owner?.phone,
       ownerEmail: owner?.email,
+      reservedAt: unit.state === "reserved" ? reservedAtByUnitId.get(unit.id) : undefined,
       latestInvoice:
         unit.state === "occupied" && invoice
           ? { number: invoice.sid, state: invoice.state, paidAt: invoice.state === "paid" ? invoice.paid : undefined }
