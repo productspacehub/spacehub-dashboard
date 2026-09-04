@@ -7,14 +7,13 @@ import { signOut, useSession } from "next-auth/react";
 import { Meter } from "@/components/Meter";
 import type { StatusBreakdown, UnitsDetail } from "@/lib/storeganise";
 
-type TabState = StatusBreakdown["state"] | "archived";
+type TabState = StatusBreakdown["state"];
 
 const STATUS_LABELS: Record<TabState, string> = {
   available: "Available",
   occupied: "Occupied",
   reserved: "Reserved",
   blocked: "Blocked",
-  archived: "Archived",
 };
 
 function formatPct(value: number): string {
@@ -66,7 +65,7 @@ export default function OccupancyDetailPage() {
 
   const tabCounts = useMemo(() => {
     if (!detail) return null;
-    const counts: Partial<Record<TabState, number>> = { archived: detail.archivedUnits };
+    const counts: Partial<Record<TabState, number>> = {};
     for (const b of detail.breakdown) counts[b.state] = b.count;
     return counts;
   }, [detail]);
@@ -80,7 +79,9 @@ export default function OccupancyDetailPage() {
 
   const showEmailColumn = selectedState === "occupied";
   const showReasonColumn = selectedState === "blocked";
-  const columnCount = 2 + (showEmailColumn ? 4 : showReasonColumn ? 1 : 0);
+  const showContactColumns = selectedState === "reserved";
+  const columnCount =
+    2 + (showEmailColumn ? 4 : showReasonColumn ? 1 : showContactColumns ? 3 : 0);
 
   return (
     <div className="min-h-screen px-6 py-10 sm:px-10">
@@ -244,6 +245,19 @@ export default function OccupancyDetailPage() {
                           Blocked reason
                         </th>
                       )}
+                      {showContactColumns && (
+                        <>
+                          <th className="px-4 py-3 font-medium" style={{ color: "var(--text-secondary)" }}>
+                            Customer name
+                          </th>
+                          <th className="px-4 py-3 font-medium" style={{ color: "var(--text-secondary)" }}>
+                            Phone
+                          </th>
+                          <th className="px-4 py-3 font-medium" style={{ color: "var(--text-secondary)" }}>
+                            Email
+                          </th>
+                        </>
+                      )}
                     </tr>
                   </thead>
                   <tbody>
@@ -277,6 +291,19 @@ export default function OccupancyDetailPage() {
                           <td className="px-4 py-2" style={{ color: "var(--text-secondary)" }}>
                             {unit.blockedReason ?? "—"}
                           </td>
+                        )}
+                        {showContactColumns && (
+                          <>
+                            <td className="px-4 py-2" style={{ color: "var(--text-secondary)" }}>
+                              {unit.ownerName ?? "—"}
+                            </td>
+                            <td className="px-4 py-2" style={{ color: "var(--text-secondary)" }}>
+                              {unit.ownerPhone ?? "—"}
+                            </td>
+                            <td className="px-4 py-2" style={{ color: "var(--text-secondary)" }}>
+                              {unit.ownerEmail ?? "—"}
+                            </td>
+                          </>
                         )}
                       </tr>
                     ))}

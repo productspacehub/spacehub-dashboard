@@ -41,9 +41,15 @@ Open [http://localhost:3000](http://localhost:3000) — you'll be redirected to
   `blockedReason` directly off blocked units. `src/app/api/occupancy/units/route.ts`
   exposes this as a status breakdown (percentages exclude archived units from
   the total) plus a flat per-unit list; `src/app/occupancy/page.tsx` renders it
-  with status tabs, a site filter, and a table whose columns adapt to the
-  selected status (customer email + latest invoice for Occupied, blocked
-  reason for Blocked).
+  with status tabs (Available/Occupied/Reserved/Blocked — Archived has no tab
+  since there's nothing actionable to do with an archived unit, though its
+  count still shows in the breakdown summary), a site filter, and a table
+  whose columns adapt to the selected status: customer email + latest invoice
+  for Occupied, blocked reason for Blocked, and customer name + phone + email
+  for Reserved (so sales can follow up on payment before move-in).
+- Reserved units resolve owner contact info the same way as Occupied ones —
+  `fetchRentalsWithOwner` is called for both `state=occupied` and
+  `state=reserved` against `GET /v1/admin/unit-rentals?include=owner`.
 - The latest invoice (number, state, paid date) shown on the Occupied tab
   comes from `GET /api/v1/admin/invoices?start=<60 days ago>`, grouped
   client-side by `unitRentalId` and matched back to units via the same

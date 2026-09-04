@@ -25,6 +25,7 @@ export type StoreganiseUnitRental = {
   owner?: {
     email?: string;
     name?: string;
+    phone?: string;
   };
 };
 
@@ -120,8 +121,8 @@ export async function fetchUnits(): Promise<StoreganiseUnit[]> {
   return paginate<StoreganiseUnit>("/v1/admin/units");
 }
 
-async function fetchOccupiedRentalsWithOwner(): Promise<StoreganiseUnitRental[]> {
-  return paginate<StoreganiseUnitRental>("/v1/admin/unit-rentals?state=occupied&include=owner");
+async function fetchRentalsWithOwner(state: "occupied" | "reserved"): Promise<StoreganiseUnitRental[]> {
+  return paginate<StoreganiseUnitRental>(`/v1/admin/unit-rentals?state=${state}&include=owner`);
 }
 
 // Invoices don't support filtering by multiple unitRentalIds at once (only a single
@@ -207,6 +208,8 @@ export type UnitDetail = {
   siteName: string;
   state: UnitState;
   blockedReason?: string;
+  ownerName?: string;
+  ownerPhone?: string;
   ownerEmail?: string;
   latestInvoice?: LatestInvoice;
 };
@@ -228,17 +231,20 @@ export type UnitsDetail = {
 const NON_ARCHIVED_STATES: NonArchivedState[] = ["available", "occupied", "reserved", "blocked"];
 
 export async function getUnitsDetail(): Promise<UnitsDetail> {
-  const [sites, units, occupiedRentals, recentInvoices] = await Promise.all([
+  const [sites, units, occupiedRentals, reservedRentals, recentInvoices] = await Promise.all([
     fetchSites(),
     fetchUnits(),
-    fetchOccupiedRentalsWithOwner(),
+    fetchRentalsWithOwner("occupied"),
+    fetchRentalsWithOwner("reserved"),
     fetchRecentInvoices(),
   ]);
 
   const siteNameById = new Map(sites.map((s) => [s.id, pickTitle(s.title, s.code ?? s.id)]));
-  const ownerEmailByUnitId = new Map(
-    occupiedRentals.filter((r) => r.owner?.email).map((r) => [r.unitId, r.owner!.email as string])
-  );
+
+  const ownerByUnitId = new Map<string, NonNullable<StoreganiseUnitRental["owner"]>>();
+  for (const rental of [...occupiedRentals, ...reservedRentals]) {
+    if (rental.owner) ownerByUnitId.set(rental.unitId, rental.owner);
+  }
   const rentalIdByUnitId = new Map(occupiedRentals.map((r) => [r.unitId, r.id]));
 
   const latestInvoiceByRentalId = new Map<string, StoreganiseInvoice>();
@@ -252,6 +258,8 @@ export async function getUnitsDetail(): Promise<UnitsDetail> {
   const unitDetails: UnitDetail[] = units.map((unit) => {
     const rentalId = rentalIdByUnitId.get(unit.id);
     const invoice = rentalId ? latestInvoiceByRentalId.get(rentalId) : undefined;
+    const owner =
+      unit.state === "occupied" || unit.state === "reserved" ? ownerByUnitId.get(unit.id) : undefined;
 
     return {
       id: unit.id,
@@ -260,7 +268,9 @@ export async function getUnitsDetail(): Promise<UnitsDetail> {
       siteName: siteNameById.get(unit.siteId) ?? unit.siteId,
       state: unit.state,
       blockedReason: unit.state === "blocked" ? unit.blockedReason : undefined,
-      ownerEmail: unit.state === "occupied" ? ownerEmailByUnitId.get(unit.id) : undefined,
+      ownerName: owner?.name,
+      ownerPhone: owner?.phone,
+      ownerEmail: owner?.email,
       latestInvoice:
         unit.state === "occupied" && invoice
           ? { number: invoice.sid, state: invoice.state, paidAt: invoice.state === "paid" ? invoice.paid : undefined }
