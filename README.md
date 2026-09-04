@@ -62,7 +62,10 @@ Open [http://localhost:3000](http://localhost:3000) — you'll be redirected to
   monthly; a unit with nothing in that window simply shows no invoice.
   The invoice "number" customers see is the `sid` field, not `id`.
 - The Blocked tab shows how long a unit has been blocked ("blockedDuration",
-  formatted as "xx Tahun xx Bulan xx Hari"). There's no `blockedAt` field on
+  formatted as e.g. "1 Tahun 3 Bulan 5 Hari" — zero-valued units are omitted
+  wherever they fall, not just when leading, so 6 months exactly reads as
+  "6 Bulan" rather than "6 Bulan 0 Hari", and a same-day block reads as
+  "0 Hari"). There's no `blockedAt` field on
   the Unit itself — the timestamp comes from that unit's action history,
   `GET /v1/admin/units/:unitId/actions`, finding the most recent entry with
   `type: "unit.block"` (actions come back newest-first). This is a separate

@@ -185,8 +185,11 @@ function formatDurationSince(startIso: string, now: Date): string {
   }
   const days = Math.round((now.getTime() - cursor.getTime()) / 86_400_000);
 
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${pad(years)} Tahun ${pad(months)} Bulan ${pad(days)} Hari`;
+  const parts: string[] = [];
+  if (years > 0) parts.push(`${years} Tahun`);
+  if (months > 0) parts.push(`${months} Bulan`);
+  if (days > 0) parts.push(`${days} Hari`);
+  return parts.length > 0 ? parts.join(" ") : "0 Hari";
 }
 
 export async function getOccupancySnapshot(): Promise<OccupancySnapshot> {
