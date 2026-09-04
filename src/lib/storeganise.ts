@@ -11,7 +11,21 @@ export type StoreganiseSite = {
 export type StoreganiseUnit = {
   id: string;
   siteId: string;
+  name?: string;
   state: UnitState;
+  blockedReason?: string;
+};
+
+export type StoreganiseUnitRental = {
+  id: string;
+  unitId: string;
+  siteId: string;
+  ownerId: string;
+  state: string;
+  owner?: {
+    email?: string;
+    name?: string;
+  };
 };
 
 export type SiteOccupancy = {
@@ -97,6 +111,10 @@ export async function fetchUnits(): Promise<StoreganiseUnit[]> {
   return paginate<StoreganiseUnit>("/v1/admin/units");
 }
 
+async function fetchOccupiedRentalsWithOwner(): Promise<StoreganiseUnitRental[]> {
+  return paginate<StoreganiseUnitRental>("/v1/admin/unit-rentals?state=occupied&include=owner");
+}
+
 export async function getOccupancySnapshot(): Promise<OccupancySnapshot> {
   const [sites, units] = await Promise.all([fetchSites(), fetchUnits()]);
 
@@ -148,5 +166,79 @@ export async function getOccupancySnapshot(): Promise<OccupancySnapshot> {
       occupancyRate: overallTotal > 0 ? (overallOccupied / overallTotal) * 100 : 0,
     },
     sites: siteList,
+  };
+}
+
+type NonArchivedState = Exclude<UnitState, "archived">;
+
+export type UnitDetail = {
+  id: string;
+  name: string;
+  siteId: string;
+  siteName: string;
+  state: UnitState;
+  blockedReason?: string;
+  ownerEmail?: string;
+};
+
+export type StatusBreakdown = {
+  state: NonArchivedState;
+  count: number;
+  percentage: number;
+};
+
+export type UnitsDetail = {
+  generatedAt: string;
+  totalUnits: number;
+  archivedUnits: number;
+  breakdown: StatusBreakdown[];
+  units: UnitDetail[];
+};
+
+const NON_ARCHIVED_STATES: NonArchivedState[] = ["available", "occupied", "reserved", "blocked"];
+
+export async function getUnitsDetail(): Promise<UnitsDetail> {
+  const [sites, units, occupiedRentals] = await Promise.all([
+    fetchSites(),
+    fetchUnits(),
+    fetchOccupiedRentalsWithOwner(),
+  ]);
+
+  const siteNameById = new Map(sites.map((s) => [s.id, pickTitle(s.title, s.code ?? s.id)]));
+  const ownerEmailByUnitId = new Map(
+    occupiedRentals.filter((r) => r.owner?.email).map((r) => [r.unitId, r.owner!.email as string])
+  );
+
+  const unitDetails: UnitDetail[] = units.map((unit) => ({
+    id: unit.id,
+    name: unit.name ?? unit.id,
+    siteId: unit.siteId,
+    siteName: siteNameById.get(unit.siteId) ?? unit.siteId,
+    state: unit.state,
+    blockedReason: unit.state === "blocked" ? unit.blockedReason : undefined,
+    ownerEmail: unit.state === "occupied" ? ownerEmailByUnitId.get(unit.id) : undefined,
+  }));
+
+  const archivedUnits = unitDetails.filter((u) => u.state === "archived").length;
+  const nonArchived = unitDetails.filter((u) => u.state !== "archived");
+  const totalUnits = nonArchived.length;
+
+  const counts: Record<NonArchivedState, number> = { available: 0, occupied: 0, reserved: 0, blocked: 0 };
+  for (const u of nonArchived) {
+    counts[u.state as NonArchivedState] += 1;
+  }
+
+  const breakdown: StatusBreakdown[] = NON_ARCHIVED_STATES.map((state) => ({
+    state,
+    count: counts[state],
+    percentage: totalUnits > 0 ? (counts[state] / totalUnits) * 100 : 0,
+  }));
+
+  return {
+    generatedAt: new Date().toISOString(),
+    totalUnits,
+    archivedUnits,
+    breakdown,
+    units: unitDetails,
   };
 }

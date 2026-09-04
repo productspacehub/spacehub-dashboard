@@ -2,32 +2,15 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import Image from "next/image";
+import Link from "next/link";
 import { signOut, useSession } from "next-auth/react";
+import { Meter } from "@/components/Meter";
 import type { OccupancySnapshot } from "@/lib/storeganise";
 
 const REFRESH_INTERVAL_MS = 60_000;
 
 function formatPct(value: number): string {
   return `${value.toFixed(1)}%`;
-}
-
-function Meter({ value }: { value: number }) {
-  const pct = Math.max(0, Math.min(100, value));
-  return (
-    <div
-      className="h-2 w-full rounded-full"
-      style={{ background: "var(--series-1-track)" }}
-      role="progressbar"
-      aria-valuenow={Math.round(pct)}
-      aria-valuemin={0}
-      aria-valuemax={100}
-    >
-      <div
-        className="h-2 rounded-full transition-[width] duration-500"
-        style={{ width: `${pct}%`, background: "var(--series-1)" }}
-      />
-    </div>
-  );
 }
 
 export default function Home() {
@@ -148,12 +131,18 @@ export default function Home() {
             </section>
 
             <section>
-              <h2
-                className="mb-3 text-sm font-medium"
-                style={{ color: "var(--text-secondary)" }}
-              >
-                By site
-              </h2>
+              <div className="mb-3 flex items-center justify-between">
+                <h2 className="text-sm font-medium" style={{ color: "var(--text-secondary)" }}>
+                  By site
+                </h2>
+                <Link
+                  href="/occupancy"
+                  className="text-sm hover:underline"
+                  style={{ color: "var(--series-1)" }}
+                >
+                  Lihat detail unit →
+                </Link>
+              </div>
               <div className="flex flex-col gap-3">
                 {snapshot.sites.map((site) => (
                   <div

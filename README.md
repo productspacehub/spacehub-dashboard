@@ -34,7 +34,15 @@ Open [http://localhost:3000](http://localhost:3000) — you'll be redirected to
 - `src/app/api/occupancy/route.ts` exposes that computation as a server-side API
   route, so the Storeganise API key never reaches the browser.
 - `src/app/page.tsx` polls `/api/occupancy` every 60 seconds and renders the
-  overall rate plus a per-site breakdown.
+  overall rate plus a per-site breakdown, linking to `/occupancy` for detail.
+- `getUnitsDetail` in `src/lib/storeganise.ts` additionally fetches
+  `GET /api/v1/admin/unit-rentals?state=occupied&include=owner` to resolve a
+  customer's email for each occupied unit (joined by `unitId`), and reads
+  `blockedReason` directly off blocked units. `src/app/api/occupancy/units/route.ts`
+  exposes this as a status breakdown (percentages exclude archived units from
+  the total) plus a flat per-unit list; `src/app/occupancy/page.tsx` renders it
+  with status tabs, a site filter, and a table whose columns adapt to the
+  selected status (customer email for Occupied, blocked reason for Blocked).
 - `src/auth.ts` configures Auth.js (NextAuth v5) with a Google provider; its
   `signIn` callback rejects any email not ending in `@spacehub.id`.
 - `src/proxy.ts` (Next.js's proxy/middleware convention) requires a valid
