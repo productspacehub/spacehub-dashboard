@@ -90,7 +90,7 @@ function extractList<T>(json: unknown): T[] {
   throw new Error(`Unexpected Storeganise API response shape: ${JSON.stringify(json).slice(0, 200)}`);
 }
 
-async function paginate<T>(path: string): Promise<T[]> {
+export async function paginate<T>(path: string): Promise<T[]> {
   const limit = 1000;
   const results: T[] = [];
   let offset = 0;
@@ -115,7 +115,7 @@ async function paginate<T>(path: string): Promise<T[]> {
   return results;
 }
 
-function pickTitle(title: Record<string, string> | undefined, fallback: string): string {
+export function pickTitle(title: Record<string, string> | undefined, fallback: string): string {
   if (!title) return fallback;
   return title.en ?? Object.values(title)[0] ?? fallback;
 }

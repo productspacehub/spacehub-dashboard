@@ -1,10 +1,21 @@
-export function DeltaBadge({ value, label }: { value: number | null; label?: string }) {
+export function DeltaBadge({
+  value,
+  label,
+  format = "integer",
+}: {
+  value: number | null;
+  label?: string;
+  format?: "integer" | "percent";
+}) {
   if (value === null) return null;
+
+  const display = format === "percent" ? `${Math.round(value)}%` : `${value}`;
 
   if (value === 0) {
     return (
       <span className="text-xs font-semibold" style={{ color: "var(--text-muted)" }}>
-        ±0{label ? ` ${label}` : ""}
+        ±{format === "percent" ? "0%" : "0"}
+        {label ? ` ${label}` : ""}
       </span>
     );
   }
@@ -19,7 +30,7 @@ export function DeltaBadge({ value, label }: { value: number | null; label?: str
       }}
     >
       {up ? "▲" : "▼"} {up ? "+" : ""}
-      {value}
+      {display}
       {label ? ` ${label}` : ""}
     </span>
   );

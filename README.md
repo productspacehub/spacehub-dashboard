@@ -100,6 +100,41 @@ Open [http://localhost:3000](http://localhost:3000) — you'll be redirected to
   with an explicit `to_char(..., 'YYYY-MM-DD')` cast — a bare `date` column
   otherwise comes back through `pg` as a JS `Date` at UTC midnight, which can
   print as the wrong day once serialized and re-parsed in a non-UTC timezone.
+- **Cash-in** (`/cash-in`, plus a summary card on the home page). Unlike occupancy,
+  Storeganise retains full payment history, so this needs no snapshot table or
+  cron — `src/lib/cashin.ts` fetches `GET /v1/admin/invoices/payments?start=&end=`
+  live on every request for the current month-to-date and for the "pace"
+  comparison range (the same day-of-month cutoff last month, e.g. 1–7 September
+  compared against 1–7 August — capped to the shorter month where relevant, so
+  Mar 31 compares against Feb 28/29). The pace comparison only needs a total, so
+  it stays on that cheap payments-only path; the MTD breakdown additionally
+  fetches each unique invoice's line items (`include=entries`, batched at 40
+  per request per Storeganise's own guidance against larger `include` lists)
+  to classify every line into New Rent, Extension, Late Fee, Non-rental Item,
+  or Tidak Terklasifikasi (uncategorized) — Storeganise has no field for any of
+  these distinctions:
+  - **New Rent vs Extension**: inferred from invoice history, not any field —
+    a unit-rental's first-ever invoice is its New Rent, every later invoice for
+    that same rental is an Extension. This means one extra request per unique
+    rental referenced in the period (`?unitRentalId=`, no bulk filter exists),
+    parallelized the same way blocked-unit durations are elsewhere in this file.
+  - **Late Fee / Non-rental Item**: keyword-matched against each entry's
+    free-text `desc` (case-insensitive — real samples show "Padlock" and
+    "padlock" from different staff), since Storeganise entries only carry a
+    generic `type` (`deposit`/`prepayment`/`revenue`) with no category of their
+    own. A `type: "deposit"` entry always counts as New Rent (deposits are only
+    ever charged at move-in). Anything matching no known pattern is
+    "Tidak Terklasifikasi" rather than being guessed into the nearest category,
+    so an unrecognized description never silently misreports.
+  - A single payment can span multiple categories at once (a real example: one
+    payment settling a rent period, a prepay-ahead period, and two late fees
+    together) — so the split happens at the line-item level, then each
+    payment's amount is allocated across categories in proportion to that
+    invoice's own entry composition.
+  - Above 400 distinct invoices in the requested period, categorization is
+    skipped (the total stays accurate; the breakdown reports everything as
+    uncategorized with a `skippedCategorization` flag) rather than risk a slow
+    request — this hasn't been exercised against real transaction volume yet.
 - `src/auth.ts` configures Auth.js (NextAuth v5) with a Google provider; its
   `signIn` callback rejects any email not ending in `@spacehub.id`.
 - `src/proxy.ts` (Next.js's proxy/middleware convention) requires a valid
