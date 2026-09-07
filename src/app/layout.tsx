@@ -9,7 +9,7 @@ const montserrat = Montserrat({
 });
 
 export const metadata: Metadata = {
-  title: "Spacehub Occupancy Dashboard",
+  title: "SpaceHub Dashboard",
   description: "Real-time unit occupancy rate across Spacehub sites",
 };
 
