@@ -82,6 +82,24 @@ Open [http://localhost:3000](http://localhost:3000) — you'll be redirected to
   start dates near month-end (e.g. Jan 31 to Mar 1). Some blocked units may
   have no `unit.block` entry in their history (blocked before this action log
   existed, or via a path that doesn't log it) — those just show no duration.
+- **Historical comparison** ("+2 units vs yesterday", the trend chart). Storeganise's
+  API only reflects current state — there's no history endpoint — so
+  `/api/cron/snapshot` runs once daily (`vercel.json`, 17:00 UTC = 00:00 WIB) and
+  writes one row per site to a Postgres `occupancy_snapshots` table (`src/lib/db.ts`,
+  `src/lib/snapshots.ts`), guarded by a `CRON_SECRET` check since it's excluded
+  from the login-required proxy matcher (Vercel Cron has no session). Both
+  `/api/occupancy` and `/api/occupancy/units` then compare today's live
+  Storeganise numbers against a stored snapshot — `?compareTo=yesterday|7d|30d|
+  YYYY-MM-DD` on the units endpoint — and degrade to `delta: null` /
+  `available: false` rather than failing the page if the database or a given
+  date's snapshot isn't there yet (most relevantly: right after this feature
+  first ships, before the cron has run even once). `getTrend` aggregates the
+  last 30 days of occupied-unit counts for the sparkline. Dates are labeled by
+  Jakarta calendar day throughout, computed via `toLocaleDateString("en-CA",
+  { timeZone: "Asia/Jakarta" })` rather than UTC, and read back from Postgres
+  with an explicit `to_char(..., 'YYYY-MM-DD')` cast — a bare `date` column
+  otherwise comes back through `pg` as a JS `Date` at UTC midnight, which can
+  print as the wrong day once serialized and re-parsed in a non-UTC timezone.
 - `src/auth.ts` configures Auth.js (NextAuth v5) with a Google provider; its
   `signIn` callback rejects any email not ending in `@spacehub.id`.
 - `src/proxy.ts` (Next.js's proxy/middleware convention) requires a valid
@@ -96,10 +114,17 @@ Deploy to Vercel and set these environment variables in the project settings
 
 - `STOREGANISE_API_KEY` (and optionally `STOREGANISE_BASE_URL`)
 - `AUTH_SECRET`, `AUTH_GOOGLE_ID`, `AUTH_GOOGLE_SECRET`
+- `DATABASE_URL` — auto-added when you connect a Postgres storage (Neon) to
+  the project under Settings > Storage; no manual setup needed
+- `CRON_SECRET` — generate with `openssl rand -base64 33`
 
 Remember to add the deployed URL's `/api/auth/callback/google` as an
 authorized redirect URI in the Google Cloud OAuth client — Google will reject
 the login otherwise.
+
+Historical comparisons only go back as far as the cron has been running —
+"vs yesterday" won't show a value until the day after this feature is live,
+and "30 hari lalu" needs a month of accumulated snapshots.
 
 ## Known assumption to verify
 

@@ -5,7 +5,8 @@ import Image from "next/image";
 import Link from "next/link";
 import { signOut, useSession } from "next-auth/react";
 import { Meter } from "@/components/Meter";
-import type { OccupancySnapshot } from "@/lib/storeganise";
+import { DeltaBadge } from "@/components/DeltaBadge";
+import type { OccupancySnapshotWithDelta } from "@/lib/snapshots";
 
 const REFRESH_INTERVAL_MS = 60_000;
 
@@ -15,7 +16,7 @@ function formatPct(value: number): string {
 
 export default function Home() {
   const { data: session } = useSession();
-  const [snapshot, setSnapshot] = useState<OccupancySnapshot | null>(null);
+  const [snapshot, setSnapshot] = useState<OccupancySnapshotWithDelta | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const abortRef = useRef<AbortController | null>(null);
@@ -31,7 +32,7 @@ export default function Home() {
       if (!res.ok) {
         throw new Error(body?.error ?? `Request failed with status ${res.status}`);
       }
-      setSnapshot(body as OccupancySnapshot);
+      setSnapshot(body as OccupancySnapshotWithDelta);
       setError(null);
     } catch (err) {
       if (err instanceof DOMException && err.name === "AbortError") return;
@@ -117,12 +118,12 @@ export default function Home() {
               <p className="mb-1 text-sm" style={{ color: "var(--text-secondary)" }}>
                 Overall occupancy
               </p>
-              <p
-                className="mb-4 text-5xl font-semibold"
-                style={{ color: "var(--text-primary)" }}
-              >
-                {formatPct(snapshot.overall.occupancyRate)}
-              </p>
+              <div className="mb-4 flex flex-wrap items-baseline gap-3">
+                <p className="text-5xl font-semibold" style={{ color: "var(--text-primary)" }}>
+                  {formatPct(snapshot.overall.occupancyRate)}
+                </p>
+                <DeltaBadge value={snapshot.overall.occupiedDeltaVsYesterday} label="units vs yesterday" />
+              </div>
               <Meter value={snapshot.overall.occupancyRate} />
               <p className="mt-2 text-sm" style={{ color: "var(--text-muted)" }}>
                 {snapshot.overall.occupiedUnits.toLocaleString()} of{" "}
@@ -157,12 +158,12 @@ export default function Home() {
                       >
                         {site.siteName}
                       </span>
-                      <span
-                        className="shrink-0 text-sm"
-                        style={{ color: "var(--text-secondary)" }}
-                      >
-                        {formatPct(site.occupancyRate)}
-                      </span>
+                      <div className="flex shrink-0 items-baseline gap-2">
+                        <span className="text-sm" style={{ color: "var(--text-secondary)" }}>
+                          {formatPct(site.occupancyRate)}
+                        </span>
+                        <DeltaBadge value={site.occupiedDeltaVsYesterday} />
+                      </div>
                     </div>
                     <Meter value={site.occupancyRate} />
                     <p className="mt-2 text-xs" style={{ color: "var(--text-muted)" }}>
