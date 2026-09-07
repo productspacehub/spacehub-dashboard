@@ -43,7 +43,12 @@ Open [http://localhost:3000](http://localhost:3000) — you'll be redirected to
   the total) plus a flat per-unit list; `src/app/occupancy/page.tsx` renders it
   with status tabs (Available/Occupied/Reserved/Blocked — Archived has no tab
   since there's nothing actionable to do with an archived unit, though its
-  count still shows in the breakdown summary), a site filter, and a table
+  count still shows in the breakdown summary). The breakdown itself is one
+  100%-stacked bar (not four separate meters) so the whole unit pool's
+  composition reads at a glance, colored by reusing existing status tokens
+  (available=status-good, occupied=series-1, reserved=status-warning,
+  blocked=status-critical) with a legend underneath. Below that, a site
+  filter and a table
   whose columns adapt to the selected status: customer email + latest invoice
   for Occupied, blocked reason for Blocked, and customer name + phone + email
   for Reserved (so sales can follow up on payment before move-in).

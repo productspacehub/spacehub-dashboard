@@ -4,7 +4,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { signOut, useSession } from "next-auth/react";
-import { Meter } from "@/components/Meter";
 import type { StatusBreakdown, UnitsDetail } from "@/lib/storeganise";
 
 type TabState = StatusBreakdown["state"];
@@ -14,6 +13,13 @@ const STATUS_LABELS: Record<TabState, string> = {
   occupied: "Occupied",
   reserved: "Reserved",
   blocked: "Blocked",
+};
+
+const STATUS_COLORS: Record<TabState, string> = {
+  available: "var(--status-good)",
+  occupied: "var(--series-1)",
+  reserved: "var(--status-warning)",
+  blocked: "var(--status-critical)",
 };
 
 function formatPct(value: number): string {
@@ -153,18 +159,36 @@ export default function OccupancyDetailPage() {
                 {detail.archivedUnits > 0 &&
                   ` (excludes ${detail.archivedUnits.toLocaleString()} archived)`}
               </p>
-              <div className="flex flex-col gap-4">
+              <div
+                className="flex h-8 w-full gap-0.5 overflow-hidden rounded-full"
+                style={{ background: "var(--background)" }}
+              >
+                {detail.breakdown
+                  .filter((b) => b.count > 0)
+                  .map((b) => (
+                    <div
+                      key={b.state}
+                      title={`${STATUS_LABELS[b.state]}: ${formatPct(b.percentage)} · ${b.count.toLocaleString()} units`}
+                      style={{ width: `${b.percentage}%`, background: STATUS_COLORS[b.state] }}
+                    />
+                  ))}
+              </div>
+
+              <div className="mt-5 grid grid-cols-2 gap-x-6 gap-y-3 sm:grid-cols-4">
                 {detail.breakdown.map((b) => (
-                  <div key={b.state}>
-                    <div className="mb-1 flex items-baseline justify-between gap-4">
-                      <span className="text-sm font-medium" style={{ color: "var(--text-primary)" }}>
+                  <div key={b.state} className="flex items-start gap-2">
+                    <span
+                      className="mt-1 h-2.5 w-2.5 shrink-0 rounded-full"
+                      style={{ background: STATUS_COLORS[b.state] }}
+                    />
+                    <div>
+                      <p className="text-sm font-medium" style={{ color: "var(--text-primary)" }}>
                         {STATUS_LABELS[b.state]}
-                      </span>
-                      <span className="text-sm" style={{ color: "var(--text-secondary)" }}>
+                      </p>
+                      <p className="text-xs" style={{ color: "var(--text-secondary)" }}>
                         {formatPct(b.percentage)} · {b.count.toLocaleString()} units
-                      </span>
+                      </p>
                     </div>
-                    <Meter value={b.percentage} />
                   </div>
                 ))}
               </div>
