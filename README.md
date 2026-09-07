@@ -118,7 +118,12 @@ Open [http://localhost:3000](http://localhost:3000) — you'll be redirected to
     new tenants) is a refundable liability, not revenue, so it's never rolled
     into `totals`/`total` or any of the five categories. Both the MTD and pace
     totals go through this same exclusion, so the "vs pace" comparison stays
-    apples-to-apples.
+    apples-to-apples. Detected by matching "deposit" in the entry's free-text
+    `desc`, same as Late Fee/Non-rental Item below — Storeganise documents a
+    structured `type: "deposit"` value, but real invoices don't actually use
+    it (a real deposit line came through as an ordinary `type: "revenue"`
+    entry with `desc: "Deposit"`), so the desc check is the one that matters
+    and the type check is just a defensive extra.
   - **New Rent vs Extension**: inferred from invoice history, not any field —
     a unit-rental's first-ever invoice is its New Rent, every later invoice for
     that same rental is an Extension. This means one extra request per unique

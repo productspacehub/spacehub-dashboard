@@ -155,7 +155,10 @@ type ClassificationBucket = CashinCategory | "deposit";
 
 function classifyEntry(entry: StoreganiseInvoiceEntry, isFirstInvoiceForRental: boolean): ClassificationBucket {
   const desc = (entry.desc ?? "").toLowerCase();
-  if (entry.type === "deposit") return "deposit"; // refundable, not revenue — excluded from cash-in
+  // Real invoices show deposit entries as an ordinary `type: "revenue"` line with
+  // desc "Deposit" — the structured `type: "deposit"` value documented by Storeganise
+  // doesn't actually appear in practice, so desc is checked either way.
+  if (entry.type === "deposit" || desc.includes("deposit")) return "deposit";
   if (desc.includes(LATE_FEE_KEYWORD)) return "lateFee";
   if (NON_RENTAL_ITEM_KEYWORDS.some((k) => desc.includes(k))) return "item";
   if (desc.includes("rent")) return isFirstInvoiceForRental ? "newRent" : "extension";
