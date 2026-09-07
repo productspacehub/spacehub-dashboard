@@ -13,6 +13,18 @@ function emptyTotals(): CashinTotals {
 export type CashinDayBreakdown = { date: string; totals: CashinTotals; total: number };
 export type CashinSiteBreakdown = { siteId: string; siteName: string; totals: CashinTotals; total: number };
 
+// One invoice line item that landed in "unclassified" — surfaced so a real person
+// can look the invoice up in Storeganise (by `invoiceSid`) and judge whether the
+// keyword list needs a new entry, rather than the number being a black box.
+export type CashinUnclassifiedEntry = {
+  invoiceSid: string;
+  siteId: string;
+  siteName: string;
+  desc: string;
+  amount: number;
+  date: string;
+};
+
 export type CashinReport = {
   generatedAt: string;
   period: { start: string; end: string };
@@ -21,6 +33,12 @@ export type CashinReport = {
   byDay: CashinDayBreakdown[];
   bySite: CashinSiteBreakdown[];
   skippedCategorization: boolean;
+  // Distinct invoices referenced by payments in this period — the number the
+  // MAX_INVOICES_TO_CATEGORIZE cap below actually applies to (not the count of
+  // invoices in any given state/date filter in the Storeganise admin UI, which
+  // is a different set: invoice creation/state date vs. payment date).
+  uniqueInvoiceCount: number;
+  unclassifiedEntries: CashinUnclassifiedEntry[];
 };
 
 type StoreganisePayment = {
@@ -164,6 +182,7 @@ export async function getCashinReport(start: string, end: string): Promise<Cashi
   };
 
   const uniqueInvoiceIds = Array.from(new Set(payments.map((p) => p.invoice.id)));
+  const unclassifiedEntries: CashinUnclassifiedEntry[] = [];
 
   if (uniqueInvoiceIds.length > MAX_INVOICES_TO_CATEGORIZE) {
     for (const payment of payments) {
@@ -184,6 +203,14 @@ export async function getCashinReport(start: string, end: string): Promise<Cashi
       if (!invoice || invoice.entries.length === 0) {
         dayTotals.unclassified += payment.amount;
         siteTotals.unclassified += payment.amount;
+        unclassifiedEntries.push({
+          invoiceSid: invoice?.sid ?? payment.invoice.sid,
+          siteId: payment.invoice.siteId,
+          siteName: siteNameById.get(payment.invoice.siteId) ?? payment.invoice.siteId,
+          desc: invoice ? "(invoice tanpa baris entry)" : "(detail invoice tidak ditemukan)",
+          amount: payment.amount,
+          date: payment.date,
+        });
         continue;
       }
 
@@ -194,6 +221,16 @@ export async function getCashinReport(start: string, end: string): Promise<Cashi
         const category = classifyEntry(entry, isFirst);
         entryTotalsByCategory[category] += entry.total;
         entriesSum += entry.total;
+        if (category === "unclassified" && entry.total > 0) {
+          unclassifiedEntries.push({
+            invoiceSid: invoice.sid,
+            siteId: payment.invoice.siteId,
+            siteName: siteNameById.get(payment.invoice.siteId) ?? payment.invoice.siteId,
+            desc: entry.desc ?? "(tanpa deskripsi)",
+            amount: entry.total,
+            date: payment.date,
+          });
+        }
       }
 
       if (entriesSum <= 0) {
@@ -243,6 +280,8 @@ export async function getCashinReport(start: string, end: string): Promise<Cashi
     byDay,
     bySite,
     skippedCategorization: uniqueInvoiceIds.length > MAX_INVOICES_TO_CATEGORIZE,
+    uniqueInvoiceCount: uniqueInvoiceIds.length,
+    unclassifiedEntries,
   };
 }
 

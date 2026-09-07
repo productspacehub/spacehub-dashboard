@@ -183,7 +183,8 @@ export default function CashinPage() {
                 Cash-in harian per kategori
               </p>
               <p className="mb-4 text-xs" style={{ color: "var(--text-muted)" }}>
-                {formatPeriodLabel(data.period.start, data.period.end)}, digabung dari semua site
+                {formatPeriodLabel(data.period.start, data.period.end)}, digabung dari semua site ·{" "}
+                {data.uniqueInvoiceCount} invoice unik
                 {data.skippedCategorization &&
                   " · kategorisasi dilewati untuk periode ini karena volume transaksi tinggi (total tetap akurat)"}
               </p>
@@ -211,6 +212,65 @@ export default function CashinPage() {
                 })}
               </div>
             </section>
+
+            {data.unclassifiedEntries.length > 0 && (
+              <section
+                className="mb-8 rounded-2xl border p-6"
+                style={{ background: "var(--surface-1)", borderColor: "var(--gridline)" }}
+              >
+                <p className="mb-1 text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
+                  Detail Tidak Terklasifikasi
+                </p>
+                <p className="mb-4 text-xs" style={{ color: "var(--text-muted)" }}>
+                  {data.unclassifiedEntries.length} baris invoice tidak cocok pola kategori manapun — cari nomor
+                  invoice-nya di Storeganise untuk lihat detailnya
+                </p>
+                <div className="overflow-x-auto rounded-xl border" style={{ borderColor: "var(--gridline)" }}>
+                  <table className="w-full text-left text-sm">
+                    <thead>
+                      <tr style={{ borderBottom: "1px solid var(--gridline)" }}>
+                        <th className="px-4 py-3 font-medium" style={{ color: "var(--text-secondary)" }}>
+                          Invoice #
+                        </th>
+                        <th className="px-4 py-3 font-medium" style={{ color: "var(--text-secondary)" }}>
+                          Site
+                        </th>
+                        <th className="px-4 py-3 font-medium" style={{ color: "var(--text-secondary)" }}>
+                          Deskripsi
+                        </th>
+                        <th className="px-4 py-3 font-medium" style={{ color: "var(--text-secondary)" }}>
+                          Tanggal
+                        </th>
+                        <th className="px-4 py-3 text-right font-medium" style={{ color: "var(--text-secondary)" }}>
+                          Jumlah
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {data.unclassifiedEntries.map((entry, i) => (
+                        <tr key={`${entry.invoiceSid}-${i}`} style={{ borderBottom: "1px solid var(--gridline)" }}>
+                          <td className="px-4 py-2 font-medium" style={{ color: "var(--text-primary)" }}>
+                            {entry.invoiceSid}
+                          </td>
+                          <td className="px-4 py-2" style={{ color: "var(--text-secondary)" }}>
+                            {entry.siteName}
+                          </td>
+                          <td className="px-4 py-2" style={{ color: "var(--text-secondary)" }}>
+                            {entry.desc}
+                          </td>
+                          <td className="px-4 py-2 whitespace-nowrap" style={{ color: "var(--text-secondary)" }}>
+                            {formatDateLabel(entry.date, { day: "numeric", month: "short" })}
+                          </td>
+                          <td className="px-4 py-2 text-right whitespace-nowrap" style={{ color: "var(--text-primary)" }}>
+                            {formatIdr(entry.amount)}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </section>
+            )}
 
             <section
               className="mb-8 rounded-2xl border p-6"
