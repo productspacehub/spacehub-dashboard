@@ -4,8 +4,12 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { signOut, useSession } from "next-auth/react";
+import type { CashinBucket } from "@/lib/cashin";
 import type { CashinResponse } from "@/app/api/cashin/route";
 import {
+  CASHIN_BUCKET_COLORS,
+  CASHIN_BUCKET_LABELS,
+  CASHIN_BUCKET_ORDER,
   CASHIN_CATEGORY_COLORS,
   CASHIN_CATEGORY_LABELS,
   CASHIN_CATEGORY_ORDER,
@@ -31,6 +35,8 @@ export default function CashinPage() {
   const [data, setData] = useState<CashinResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [txCategory, setTxCategory] = useState<CashinBucket | null>(null);
+  const [txSite, setTxSite] = useState<string>("all");
   const abortRef = useRef<AbortController | null>(null);
 
   const load = useCallback(async () => {
@@ -219,64 +225,133 @@ export default function CashinPage() {
               </div>
             </section>
 
-            {data.unclassifiedEntries.length > 0 && (
-              <section
-                className="mb-8 rounded-2xl border p-6"
-                style={{ background: "var(--surface-1)", borderColor: "var(--gridline)" }}
-              >
-                <p className="mb-1 text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
-                  Detail Tidak Terklasifikasi
-                </p>
-                <p className="mb-4 text-xs" style={{ color: "var(--text-muted)" }}>
-                  {data.unclassifiedEntries.length} baris invoice tidak cocok pola kategori manapun — cari nomor
-                  invoice-nya di Storeganise untuk lihat detailnya
-                </p>
-                <div className="overflow-x-auto rounded-xl border" style={{ borderColor: "var(--gridline)" }}>
-                  <table className="w-full text-left text-sm">
-                    <thead>
-                      <tr style={{ borderBottom: "1px solid var(--gridline)" }}>
-                        <th className="px-4 py-3 font-medium" style={{ color: "var(--text-secondary)" }}>
-                          Invoice #
-                        </th>
-                        <th className="px-4 py-3 font-medium" style={{ color: "var(--text-secondary)" }}>
-                          Site
-                        </th>
-                        <th className="px-4 py-3 font-medium" style={{ color: "var(--text-secondary)" }}>
-                          Deskripsi
-                        </th>
-                        <th className="px-4 py-3 font-medium" style={{ color: "var(--text-secondary)" }}>
-                          Tanggal
-                        </th>
-                        <th className="px-4 py-3 text-right font-medium" style={{ color: "var(--text-secondary)" }}>
-                          Jumlah
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {data.unclassifiedEntries.map((entry, i) => (
-                        <tr key={`${entry.invoiceSid}-${i}`} style={{ borderBottom: "1px solid var(--gridline)" }}>
-                          <td className="px-4 py-2 font-medium" style={{ color: "var(--text-primary)" }}>
-                            {entry.invoiceSid}
-                          </td>
-                          <td className="px-4 py-2" style={{ color: "var(--text-secondary)" }}>
-                            {entry.siteName}
-                          </td>
-                          <td className="px-4 py-2" style={{ color: "var(--text-secondary)" }}>
-                            {entry.desc}
-                          </td>
-                          <td className="px-4 py-2 whitespace-nowrap" style={{ color: "var(--text-secondary)" }}>
-                            {formatDateLabel(entry.date, { day: "numeric", month: "short" })}
-                          </td>
-                          <td className="px-4 py-2 text-right whitespace-nowrap" style={{ color: "var(--text-primary)" }}>
-                            {formatIdr(entry.amount)}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+            <section
+              className="mb-8 rounded-2xl border p-6"
+              style={{ background: "var(--surface-1)", borderColor: "var(--gridline)" }}
+            >
+              <p className="mb-1 text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
+                Cari transaksi
+              </p>
+              <p className="mb-4 text-xs" style={{ color: "var(--text-muted)" }}>
+                Lacak invoice di balik angka mana pun di halaman ini — pilih kategori dan/atau site
+              </p>
+
+              <div className="mb-4 flex flex-wrap items-center gap-3">
+                <div className="flex flex-wrap gap-2">
+                  {CASHIN_BUCKET_ORDER.map((bucket) => {
+                    const active = txCategory === bucket;
+                    return (
+                      <button
+                        key={bucket}
+                        onClick={() => setTxCategory(active ? null : bucket)}
+                        className="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-medium"
+                        style={{
+                          background: active ? "var(--series-1)" : "transparent",
+                          color: active ? "var(--background)" : "var(--text-secondary)",
+                          border: active ? "none" : "1px solid var(--gridline)",
+                        }}
+                      >
+                        <span
+                          className="h-2 w-2 rounded-full"
+                          style={{ background: active ? "var(--background)" : CASHIN_BUCKET_COLORS[bucket] }}
+                        />
+                        {CASHIN_BUCKET_LABELS[bucket]}
+                      </button>
+                    );
+                  })}
                 </div>
-              </section>
-            )}
+                <select
+                  value={txSite}
+                  onChange={(e) => setTxSite(e.target.value)}
+                  className="rounded-lg border px-3 py-1.5 text-sm"
+                  style={{ background: "var(--surface-1)", borderColor: "var(--gridline)", color: "var(--text-primary)" }}
+                >
+                  <option value="all">Semua site</option>
+                  {data.bySite.map((site) => (
+                    <option key={site.siteId} value={site.siteId}>
+                      {site.siteName}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {(() => {
+                const filtered = data.entries.filter(
+                  (e) =>
+                    (txCategory === null || e.category === txCategory) &&
+                    (txSite === "all" || e.siteId === txSite)
+                );
+                if (txCategory === null) {
+                  return (
+                    <p className="text-sm" style={{ color: "var(--text-muted)" }}>
+                      Pilih kategori di atas untuk melihat daftar transaksinya.
+                    </p>
+                  );
+                }
+                if (filtered.length === 0) {
+                  return (
+                    <p className="text-sm" style={{ color: "var(--text-muted)" }}>
+                      Tidak ada transaksi untuk kombinasi kategori/site ini di periode berjalan.
+                    </p>
+                  );
+                }
+                const filteredTotal = filtered.reduce((s, e) => s + e.amount, 0);
+                return (
+                  <>
+                    <p className="mb-3 text-xs" style={{ color: "var(--text-muted)" }}>
+                      {filtered.length} transaksi · total {formatIdr(filteredTotal)}
+                    </p>
+                    <div className="overflow-x-auto rounded-xl border" style={{ borderColor: "var(--gridline)" }}>
+                      <table className="w-full text-left text-sm">
+                        <thead>
+                          <tr style={{ borderBottom: "1px solid var(--gridline)" }}>
+                            <th className="px-4 py-3 font-medium" style={{ color: "var(--text-secondary)" }}>
+                              Invoice #
+                            </th>
+                            <th className="px-4 py-3 font-medium" style={{ color: "var(--text-secondary)" }}>
+                              Site
+                            </th>
+                            <th className="px-4 py-3 font-medium" style={{ color: "var(--text-secondary)" }}>
+                              Deskripsi
+                            </th>
+                            <th className="px-4 py-3 font-medium" style={{ color: "var(--text-secondary)" }}>
+                              Tanggal
+                            </th>
+                            <th className="px-4 py-3 text-right font-medium" style={{ color: "var(--text-secondary)" }}>
+                              Jumlah
+                            </th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {filtered.map((entry, i) => (
+                            <tr key={`${entry.invoiceSid}-${i}`} style={{ borderBottom: "1px solid var(--gridline)" }}>
+                              <td className="px-4 py-2 font-medium" style={{ color: "var(--text-primary)" }}>
+                                {entry.invoiceSid}
+                              </td>
+                              <td className="px-4 py-2" style={{ color: "var(--text-secondary)" }}>
+                                {entry.siteName}
+                              </td>
+                              <td className="px-4 py-2" style={{ color: "var(--text-secondary)" }}>
+                                {entry.desc}
+                              </td>
+                              <td className="px-4 py-2 whitespace-nowrap" style={{ color: "var(--text-secondary)" }}>
+                                {formatDateLabel(entry.date, { day: "numeric", month: "short" })}
+                              </td>
+                              <td
+                                className="px-4 py-2 text-right whitespace-nowrap"
+                                style={{ color: "var(--text-primary)" }}
+                              >
+                                {formatIdr(entry.amount)}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </>
+                );
+              })()}
+            </section>
 
             <section
               className="mb-8 rounded-2xl border p-6"

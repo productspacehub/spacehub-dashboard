@@ -1,4 +1,4 @@
-import type { CashinCategory, CashinDayBreakdown } from "@/lib/cashin";
+import type { CashinBucket, CashinCategory, CashinDayBreakdown } from "@/lib/cashin";
 
 export const CASHIN_CATEGORY_LABELS: Record<CashinCategory, string> = {
   newRent: "New Rent",
@@ -25,6 +25,24 @@ export const CASHIN_CATEGORY_ORDER: CashinCategory[] = [
   "item",
   "unclassified",
 ];
+
+// Same labels/order, plus "deposit" — used where deposit transactions need to be
+// shown or filtered alongside the five real cash-in categories (e.g. the
+// transaction search on /cash-in), never in the chart/legend/totals above, since
+// deposit is excluded from cash-in entirely.
+export const CASHIN_BUCKET_LABELS: Record<CashinBucket, string> = {
+  ...CASHIN_CATEGORY_LABELS,
+  deposit: "Security Deposit",
+};
+
+// Deliberately not part of the validated categorical palette above — a grey dot
+// signals "excluded from cash-in" rather than looking like a sixth real category.
+export const CASHIN_BUCKET_COLORS: Record<CashinBucket, string> = {
+  ...CASHIN_CATEGORY_COLORS,
+  deposit: "#7e8fbf",
+};
+
+export const CASHIN_BUCKET_ORDER: CashinBucket[] = [...CASHIN_CATEGORY_ORDER, "deposit"];
 
 export function formatIdr(n: number): string {
   return new Intl.NumberFormat("id-ID", { style: "currency", currency: "IDR", maximumFractionDigits: 0 })

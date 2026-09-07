@@ -13,13 +13,20 @@ function emptyTotals(): CashinTotals {
 export type CashinDayBreakdown = { date: string; totals: CashinTotals; total: number };
 export type CashinSiteBreakdown = { siteId: string; siteName: string; totals: CashinTotals; total: number };
 
-// One invoice line item that landed in "unclassified" — surfaced so a real person
-// can look the invoice up in Storeganise (by `invoiceSid`) and judge whether the
-// keyword list needs a new entry, rather than the number being a black box.
-export type CashinUnclassifiedEntry = {
+// The full set of buckets an entry can classify into — "deposit" is not one of the
+// five public CashinCategory values because it isn't cash-in at all; it's tracked
+// separately (see CashinReport.depositTotal) and never rolled into `totals`/`total`.
+export type CashinBucket = CashinCategory | "deposit";
+
+// One invoice line item, tagged with the category it was classified into — this is
+// every transaction behind every number on this page, so any category/site total
+// can be traced back to the actual invoices (by `invoiceSid`) that make it up,
+// not just the ones that landed in "unclassified".
+export type CashinTransactionDetail = {
   invoiceSid: string;
   siteId: string;
   siteName: string;
+  category: CashinBucket;
   desc: string;
   amount: number;
   date: string;
@@ -42,7 +49,7 @@ export type CashinReport = {
   // invoices in any given state/date filter in the Storeganise admin UI, which
   // is a different set: invoice creation/state date vs. payment date).
   uniqueInvoiceCount: number;
-  unclassifiedEntries: CashinUnclassifiedEntry[];
+  entries: CashinTransactionDetail[];
 };
 
 type StoreganisePayment = {
@@ -148,12 +155,7 @@ const NON_RENTAL_ITEM_KEYWORDS = [
   "card member",
 ];
 
-// The full set of buckets an entry can classify into — "deposit" is not one of the
-// five public CashinCategory values because it isn't cash-in at all; it's tracked
-// separately (see CashinReport.depositTotal) and never rolled into `totals`/`total`.
-type ClassificationBucket = CashinCategory | "deposit";
-
-function classifyEntry(entry: StoreganiseInvoiceEntry, isFirstInvoiceForRental: boolean): ClassificationBucket {
+function classifyEntry(entry: StoreganiseInvoiceEntry, isFirstInvoiceForRental: boolean): CashinBucket {
   const desc = (entry.desc ?? "").toLowerCase();
   // Real invoices show deposit entries as an ordinary `type: "revenue"` line with
   // desc "Deposit" — the structured `type: "deposit"` value documented by Storeganise
@@ -190,7 +192,7 @@ export async function getCashinReport(start: string, end: string): Promise<Cashi
   };
 
   const uniqueInvoiceIds = Array.from(new Set(payments.map((p) => p.invoice.id)));
-  const unclassifiedEntries: CashinUnclassifiedEntry[] = [];
+  const entries: CashinTransactionDetail[] = [];
 
   if (uniqueInvoiceIds.length > MAX_INVOICES_TO_CATEGORIZE) {
     for (const payment of payments) {
@@ -207,14 +209,16 @@ export async function getCashinReport(start: string, end: string): Promise<Cashi
       const dayTotals = touchDay(payment.date);
       const siteTotals = touchSite(payment.invoice.siteId);
       const invoice = invoiceById.get(payment.invoice.id);
+      const siteName = siteNameById.get(payment.invoice.siteId) ?? payment.invoice.siteId;
 
       if (!invoice || invoice.entries.length === 0) {
         dayTotals.unclassified += payment.amount;
         siteTotals.unclassified += payment.amount;
-        unclassifiedEntries.push({
+        entries.push({
           invoiceSid: invoice?.sid ?? payment.invoice.sid,
           siteId: payment.invoice.siteId,
-          siteName: siteNameById.get(payment.invoice.siteId) ?? payment.invoice.siteId,
+          siteName,
+          category: "unclassified",
           desc: invoice ? "(invoice tanpa baris entry)" : "(detail invoice tidak ditemukan)",
           amount: payment.amount,
           date: payment.date,
@@ -223,17 +227,18 @@ export async function getCashinReport(start: string, end: string): Promise<Cashi
       }
 
       const isFirst = firstInvoiceIdByRental.get(invoice.unitRentalId) === invoice.id;
-      const entryTotalsByBucket: Record<ClassificationBucket, number> = { ...emptyTotals(), deposit: 0 };
+      const entryTotalsByBucket: Record<CashinBucket, number> = { ...emptyTotals(), deposit: 0 };
       let entriesSum = 0;
       for (const entry of invoice.entries) {
         const category = classifyEntry(entry, isFirst);
         entryTotalsByBucket[category] += entry.total;
         entriesSum += entry.total;
-        if (category === "unclassified" && entry.total > 0) {
-          unclassifiedEntries.push({
+        if (entry.total > 0) {
+          entries.push({
             invoiceSid: invoice.sid,
             siteId: payment.invoice.siteId,
-            siteName: siteNameById.get(payment.invoice.siteId) ?? payment.invoice.siteId,
+            siteName,
+            category,
             desc: entry.desc ?? "(tanpa deskripsi)",
             amount: entry.total,
             date: payment.date,
@@ -293,7 +298,7 @@ export async function getCashinReport(start: string, end: string): Promise<Cashi
     bySite,
     skippedCategorization: uniqueInvoiceIds.length > MAX_INVOICES_TO_CATEGORIZE,
     uniqueInvoiceCount: uniqueInvoiceIds.length,
-    unclassifiedEntries,
+    entries,
   };
 }
 

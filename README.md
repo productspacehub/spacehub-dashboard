@@ -135,10 +135,13 @@ Open [http://localhost:3000](http://localhost:3000) — you'll be redirected to
     generic `type` (`deposit`/`prepayment`/`revenue`) with no category of their
     own. Anything matching no known pattern is "Tidak Terklasifikasi" rather
     than being guessed into the nearest category, so an unrecognized
-    description never silently misreports — `/cash-in` lists the underlying
-    invoice sid/desc/amount behind that bucket whenever it's non-empty, so a
-    real invoice can be looked up in Storeganise and the keyword list adjusted
-    if something legitimate is landing there.
+    description never silently misreports.
+  - Every classified line item is returned in `entries` (invoice sid, site,
+    category, desc, amount, date) — not just the unclassified ones — so any
+    number on `/cash-in` can be traced back to real invoices. The page's "Cari
+    transaksi" section filters this list by category and site, so e.g. every
+    New Rent transaction at a given site can be found and looked up in
+    Storeganise directly, the same way as auditing the uncategorized bucket.
   - A single payment can span multiple categories at once (a real example: one
     payment settling a rent period, a prepay-ahead period, and two late fees
     together) — so the split happens at the line-item level, then each
