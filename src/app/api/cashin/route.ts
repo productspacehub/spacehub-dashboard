@@ -2,7 +2,6 @@ import { NextResponse } from "next/server";
 import {
   firstOfMonth,
   getCashinReport,
-  getCashinTotal,
   jakartaTodayForCashin,
   sameDayLastMonthRange,
   type CashinReport,
@@ -27,10 +26,12 @@ export async function GET() {
     const report = await getCashinReport(mtdStart, today);
 
     // The pace comparison is a nice-to-have on top of the report above — degrade to
-    // no comparison rather than failing the whole request if it errors out.
+    // no comparison rather than failing the whole request if it errors out. Uses the
+    // same full categorization as the MTD report (not just a raw payments sum) so
+    // the comparison is apples-to-apples: both sides exclude deposits.
     let paceTotal: number | null = null;
     try {
-      paceTotal = await getCashinTotal(paceRange.start, paceRange.end);
+      paceTotal = (await getCashinReport(paceRange.start, paceRange.end)).total;
     } catch {
       paceTotal = null;
     }

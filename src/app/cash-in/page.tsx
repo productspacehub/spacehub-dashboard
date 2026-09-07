@@ -140,6 +140,12 @@ export default function CashinPage() {
                   <p className="mt-2 text-xs" style={{ color: "var(--text-muted)" }}>
                     {formatPeriodLabel(data.period.start, data.period.end)} · {data.bySite.length} site
                   </p>
+                  {data.depositTotal > 0 && (
+                    <p className="mt-1 text-xs" style={{ color: "var(--text-muted)" }}>
+                      + {formatIdr(data.depositTotal)} security deposit dikumpulkan bulan ini — tidak termasuk
+                      di atas karena wajib direfund, bukan revenue
+                    </p>
+                  )}
                 </div>
                 <div className="flex flex-wrap gap-6">
                   {data.pace.total !== null && (
@@ -358,6 +364,11 @@ export default function CashinPage() {
                 Bagaimana kategori ini ditentukan
               </p>
               <p className="text-xs leading-relaxed" style={{ color: "var(--text-muted)" }}>
+                <b style={{ color: "var(--text-secondary)" }}>Security deposit</b> dikecualikan sepenuhnya dari
+                cash-in di halaman ini — deposit adalah liability yang wajib direfund, bukan revenue, jadi tidak
+                dihitung sebagai bagian dari kategori manapun (jumlahnya tetap ditampilkan terpisah di atas untuk
+                transparansi).
+                <br />
                 <b style={{ color: "var(--text-secondary)" }}>New Rent</b> vs{" "}
                 <b style={{ color: "var(--text-secondary)" }}>Extension</b>: dilihat dari riwayat invoice per
                 unit-rental — invoice pertama untuk sebuah rental dihitung sebagai New Rent, invoice berikutnya

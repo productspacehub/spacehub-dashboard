@@ -30,6 +30,10 @@ export type CashinReport = {
   period: { start: string; end: string };
   totals: CashinTotals;
   total: number;
+  // Security deposits collected this period — tracked separately and excluded from
+  // `totals`/`total` entirely, because a deposit isn't revenue: it's a refundable
+  // liability (one month's rent, collected from new tenants, owed back later).
+  depositTotal: number;
   byDay: CashinDayBreakdown[];
   bySite: CashinSiteBreakdown[];
   skippedCategorization: boolean;
@@ -73,13 +77,6 @@ type StoreganiseInvoiceWithEntries = {
 
 async function fetchPayments(start: string, end: string): Promise<StoreganisePayment[]> {
   return paginate<StoreganisePayment>(`/v1/admin/invoices/payments?start=${start}&end=${end}`);
-}
-
-// Cheap path: just the total amount received in a window, no entry-level detail.
-// Used for the "pace vs same day last month" comparison, which only needs one number.
-export async function getCashinTotal(start: string, end: string): Promise<number> {
-  const payments = await fetchPayments(start, end);
-  return payments.reduce((sum, p) => sum + p.amount, 0);
 }
 
 // Storeganise's own docs warn `include=` "should only be used when loading ... a
@@ -151,9 +148,14 @@ const NON_RENTAL_ITEM_KEYWORDS = [
   "card member",
 ];
 
-function classifyEntry(entry: StoreganiseInvoiceEntry, isFirstInvoiceForRental: boolean): CashinCategory {
+// The full set of buckets an entry can classify into — "deposit" is not one of the
+// five public CashinCategory values because it isn't cash-in at all; it's tracked
+// separately (see CashinReport.depositTotal) and never rolled into `totals`/`total`.
+type ClassificationBucket = CashinCategory | "deposit";
+
+function classifyEntry(entry: StoreganiseInvoiceEntry, isFirstInvoiceForRental: boolean): ClassificationBucket {
   const desc = (entry.desc ?? "").toLowerCase();
-  if (entry.type === "deposit") return "newRent"; // a deposit is only ever charged at move-in
+  if (entry.type === "deposit") return "deposit"; // refundable, not revenue — excluded from cash-in
   if (desc.includes(LATE_FEE_KEYWORD)) return "lateFee";
   if (NON_RENTAL_ITEM_KEYWORDS.some((k) => desc.includes(k))) return "item";
   if (desc.includes("rent")) return isFirstInvoiceForRental ? "newRent" : "extension";
@@ -161,14 +163,17 @@ function classifyEntry(entry: StoreganiseInvoiceEntry, isFirstInvoiceForRental: 
 }
 
 // Above this many distinct invoices in the period, skip entry-level categorization
-// rather than risk a slow request (each invoice needs its own rental-history lookup) —
-// the total itself (from the cheap payments-only path) is still accurate either way.
+// rather than risk a slow request (each invoice needs its own rental-history lookup).
+// Caveat: since this skips fetching entries entirely, it also can't tell deposits
+// apart from real revenue, so the reported total in this fallback path may overstate
+// cash-in by whatever deposit money came in that period — hasn't been exercised
+// against real transaction volume yet, so this tradeoff hasn't come up in practice.
 const MAX_INVOICES_TO_CATEGORIZE = 400;
 
 export async function getCashinReport(start: string, end: string): Promise<CashinReport> {
   const [payments, sites] = await Promise.all([fetchPayments(start, end), fetchSites()]);
   const siteNameById = new Map(sites.map((s) => [s.id, pickTitle(s.title, s.code ?? s.id)]));
-  const total = payments.reduce((sum, p) => sum + p.amount, 0);
+  let depositTotal = 0;
 
   const byDayMap = new Map<string, CashinTotals>();
   const bySiteMap = new Map<string, CashinTotals>();
@@ -215,11 +220,11 @@ export async function getCashinReport(start: string, end: string): Promise<Cashi
       }
 
       const isFirst = firstInvoiceIdByRental.get(invoice.unitRentalId) === invoice.id;
-      const entryTotalsByCategory = emptyTotals();
+      const entryTotalsByBucket: Record<ClassificationBucket, number> = { ...emptyTotals(), deposit: 0 };
       let entriesSum = 0;
       for (const entry of invoice.entries) {
         const category = classifyEntry(entry, isFirst);
-        entryTotalsByCategory[category] += entry.total;
+        entryTotalsByBucket[category] += entry.total;
         entriesSum += entry.total;
         if (category === "unclassified" && entry.total > 0) {
           unclassifiedEntries.push({
@@ -242,11 +247,13 @@ export async function getCashinReport(start: string, end: string): Promise<Cashi
       // Allocate this payment across categories in proportion to the invoice's own
       // entry composition — needed because one payment can cover a mix of categories
       // (e.g. a single payment settling both a rent period and a late fee together).
+      // The deposit's share is tracked separately and never added to day/site totals.
       for (const category of CASHIN_CATEGORIES) {
-        const share = Math.round((entryTotalsByCategory[category] / entriesSum) * payment.amount);
+        const share = Math.round((entryTotalsByBucket[category] / entriesSum) * payment.amount);
         dayTotals[category] += share;
         siteTotals[category] += share;
       }
+      depositTotal += Math.round((entryTotalsByBucket.deposit / entriesSum) * payment.amount);
     }
   }
 
@@ -254,6 +261,7 @@ export async function getCashinReport(start: string, end: string): Promise<Cashi
   for (const dayTotals of byDayMap.values()) {
     for (const category of CASHIN_CATEGORIES) totals[category] += dayTotals[category];
   }
+  const total = CASHIN_CATEGORIES.reduce((sum, c) => sum + totals[c], 0);
 
   const byDay: CashinDayBreakdown[] = Array.from(byDayMap.entries())
     .map(([date, dayTotals]) => ({
@@ -277,6 +285,7 @@ export async function getCashinReport(start: string, end: string): Promise<Cashi
     period: { start, end },
     totals,
     total,
+    depositTotal,
     byDay,
     bySite,
     skippedCategorization: uniqueInvoiceIds.length > MAX_INVOICES_TO_CATEGORIZE,

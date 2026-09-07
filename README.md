@@ -106,13 +106,19 @@ Open [http://localhost:3000](http://localhost:3000) — you'll be redirected to
   live on every request for the current month-to-date and for the "pace"
   comparison range (the same day-of-month cutoff last month, e.g. 1–7 September
   compared against 1–7 August — capped to the shorter month where relevant, so
-  Mar 31 compares against Feb 28/29). The pace comparison only needs a total, so
-  it stays on that cheap payments-only path; the MTD breakdown additionally
-  fetches each unique invoice's line items (`include=entries`, batched at 40
-  per request per Storeganise's own guidance against larger `include` lists)
-  to classify every line into New Rent, Extension, Late Fee, Non-rental Item,
-  or Tidak Terklasifikasi (uncategorized) — Storeganise has no field for any of
+  Mar 31 compares against Feb 28/29). Both the MTD report and the pace
+  comparison go through the same `getCashinReport`, which additionally fetches
+  each unique invoice's line items (`include=entries`, batched at 40 per
+  request per Storeganise's own guidance against larger `include` lists) to
+  classify every line into New Rent, Extension, Late Fee, Non-rental Item, or
+  Tidak Terklasifikasi (uncategorized) — Storeganise has no field for any of
   these distinctions:
+  - **Security deposits are excluded from cash-in entirely**, tracked
+    separately as `depositTotal` — a deposit (one month's rent, collected from
+    new tenants) is a refundable liability, not revenue, so it's never rolled
+    into `totals`/`total` or any of the five categories. Both the MTD and pace
+    totals go through this same exclusion, so the "vs pace" comparison stays
+    apples-to-apples.
   - **New Rent vs Extension**: inferred from invoice history, not any field —
     a unit-rental's first-ever invoice is its New Rent, every later invoice for
     that same rental is an Extension. This means one extra request per unique
@@ -122,10 +128,12 @@ Open [http://localhost:3000](http://localhost:3000) — you'll be redirected to
     free-text `desc` (case-insensitive — real samples show "Padlock" and
     "padlock" from different staff), since Storeganise entries only carry a
     generic `type` (`deposit`/`prepayment`/`revenue`) with no category of their
-    own. A `type: "deposit"` entry always counts as New Rent (deposits are only
-    ever charged at move-in). Anything matching no known pattern is
-    "Tidak Terklasifikasi" rather than being guessed into the nearest category,
-    so an unrecognized description never silently misreports.
+    own. Anything matching no known pattern is "Tidak Terklasifikasi" rather
+    than being guessed into the nearest category, so an unrecognized
+    description never silently misreports — `/cash-in` lists the underlying
+    invoice sid/desc/amount behind that bucket whenever it's non-empty, so a
+    real invoice can be looked up in Storeganise and the keyword list adjusted
+    if something legitimate is landing there.
   - A single payment can span multiple categories at once (a real example: one
     payment settling a rent period, a prepay-ahead period, and two late fees
     together) — so the split happens at the line-item level, then each
