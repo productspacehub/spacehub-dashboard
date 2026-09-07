@@ -4,9 +4,20 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { signOut, useSession } from "next-auth/react";
-import type { StatusBreakdown, UnitsDetail } from "@/lib/storeganise";
+import type { StatusBreakdown } from "@/lib/storeganise";
+import type { UnitsDetailWithComparison } from "@/lib/snapshots";
+import { DeltaBadge } from "@/components/DeltaBadge";
+import { TrendChart } from "@/components/TrendChart";
 
 type TabState = StatusBreakdown["state"];
+
+type ComparePreset = "yesterday" | "7d" | "30d";
+
+const COMPARE_PRESET_LABELS: Record<ComparePreset, string> = {
+  yesterday: "Kemarin",
+  "7d": "7 hari lalu",
+  "30d": "30 hari lalu",
+};
 
 const STATUS_LABELS: Record<TabState, string> = {
   available: "Available",
@@ -28,25 +39,29 @@ function formatPct(value: number): string {
 
 export default function OccupancyDetailPage() {
   const { data: session } = useSession();
-  const [detail, setDetail] = useState<UnitsDetail | null>(null);
+  const [detail, setDetail] = useState<UnitsDetailWithComparison | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [selectedState, setSelectedState] = useState<TabState>("occupied");
   const [selectedSite, setSelectedSite] = useState<string>("all");
+  const [compareTo, setCompareTo] = useState<string>("yesterday");
+  const [showDatePicker, setShowDatePicker] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (compareToValue: string) => {
     abortRef.current?.abort();
     const controller = new AbortController();
     abortRef.current = controller;
 
     try {
-      const res = await fetch("/api/occupancy/units", { signal: controller.signal });
+      const res = await fetch(`/api/occupancy/units?compareTo=${encodeURIComponent(compareToValue)}`, {
+        signal: controller.signal,
+      });
       const body = await res.json();
       if (!res.ok) {
         throw new Error(body?.error ?? `Request failed with status ${res.status}`);
       }
-      setDetail(body as UnitsDetail);
+      setDetail(body as UnitsDetailWithComparison);
       setError(null);
     } catch (err) {
       if (err instanceof DOMException && err.name === "AbortError") return;
@@ -57,10 +72,10 @@ export default function OccupancyDetailPage() {
   }, []);
 
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- initial fetch, state settles asynchronously in `load`
-    load();
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- fetch on mount/compareTo change, state settles asynchronously in `load`
+    load(compareTo);
     return () => abortRef.current?.abort();
-  }, [load]);
+  }, [load, compareTo]);
 
   const sites = useMemo(() => {
     if (!detail) return [];
@@ -102,7 +117,7 @@ export default function OccupancyDetailPage() {
           </div>
           <div className="flex items-baseline gap-4">
             <button
-              onClick={load}
+              onClick={() => load(compareTo)}
               className="text-sm hover:underline"
               style={{ color: "var(--text-secondary)" }}
             >
@@ -150,6 +165,86 @@ export default function OccupancyDetailPage() {
 
         {detail && tabCounts && (
           <>
+            <div className="mb-6 flex flex-wrap items-center gap-2">
+              <span className="mr-1 text-xs" style={{ color: "var(--text-muted)" }}>
+                Bandingkan dengan:
+              </span>
+              {(Object.keys(COMPARE_PRESET_LABELS) as ComparePreset[]).map((preset) => (
+                <button
+                  key={preset}
+                  onClick={() => {
+                    setShowDatePicker(false);
+                    setCompareTo(preset);
+                  }}
+                  className="rounded-full px-3 py-1.5 text-sm font-medium"
+                  style={{
+                    background: compareTo === preset ? "var(--series-1)" : "transparent",
+                    color: compareTo === preset ? "var(--background)" : "var(--text-secondary)",
+                    border: compareTo === preset ? "none" : "1px solid var(--gridline)",
+                  }}
+                >
+                  {COMPARE_PRESET_LABELS[preset]}
+                </button>
+              ))}
+              {showDatePicker ? (
+                <input
+                  type="date"
+                  autoFocus
+                  max={new Date().toISOString().slice(0, 10)}
+                  value={!(compareTo in COMPARE_PRESET_LABELS) ? compareTo : ""}
+                  onChange={(e) => e.target.value && setCompareTo(e.target.value)}
+                  className="rounded-full px-3 py-1.5 text-sm font-medium"
+                  style={{
+                    background: "var(--surface-1)",
+                    borderColor: "var(--gridline)",
+                    border: "1px solid var(--gridline)",
+                    color: "var(--text-primary)",
+                  }}
+                />
+              ) : (
+                <button
+                  onClick={() => setShowDatePicker(true)}
+                  className="rounded-full px-3 py-1.5 text-sm font-medium"
+                  style={{
+                    background: !(compareTo in COMPARE_PRESET_LABELS) ? "var(--series-1)" : "transparent",
+                    color: !(compareTo in COMPARE_PRESET_LABELS) ? "var(--background)" : "var(--text-secondary)",
+                    border: !(compareTo in COMPARE_PRESET_LABELS) ? "none" : "1px solid var(--gridline)",
+                  }}
+                >
+                  {!(compareTo in COMPARE_PRESET_LABELS) ? compareTo : "Tanggal lain"}
+                </button>
+              )}
+            </div>
+
+            <section
+              className="mb-8 rounded-2xl border p-6"
+              style={{ background: "var(--surface-1)", borderColor: "var(--gridline)" }}
+            >
+              <div className="mb-3 flex flex-wrap items-baseline justify-between gap-3">
+                <div>
+                  <p className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
+                    Tren unit occupied
+                  </p>
+                  <p className="text-xs" style={{ color: "var(--text-muted)" }}>
+                    30 hari terakhir
+                    {!detail.compareTo.available && " · belum ada data untuk titik pembanding ini"}
+                  </p>
+                </div>
+                <DeltaBadge
+                  value={detail.breakdown.find((b) => b.state === "occupied")?.delta ?? null}
+                  label={`vs ${
+                    compareTo in COMPARE_PRESET_LABELS
+                      ? COMPARE_PRESET_LABELS[compareTo as ComparePreset].toLowerCase()
+                      : detail.compareTo.resolvedDate
+                  }`}
+                />
+              </div>
+              <TrendChart
+                points={detail.trend.map((t) => ({ date: t.date, value: t.occupiedUnits }))}
+                highlightDate={detail.compareTo.available ? detail.compareTo.resolvedDate : undefined}
+              />
+            </section>
+
             <section
               className="mb-8 rounded-2xl border p-6"
               style={{ background: "var(--surface-1)", borderColor: "var(--gridline)" }}
@@ -182,9 +277,12 @@ export default function OccupancyDetailPage() {
                       style={{ background: STATUS_COLORS[b.state] }}
                     />
                     <div>
-                      <p className="text-sm font-medium" style={{ color: "var(--text-primary)" }}>
-                        {STATUS_LABELS[b.state]}
-                      </p>
+                      <div className="flex items-center gap-2">
+                        <p className="text-sm font-medium" style={{ color: "var(--text-primary)" }}>
+                          {STATUS_LABELS[b.state]}
+                        </p>
+                        <DeltaBadge value={b.delta} />
+                      </div>
                       <p className="text-xs" style={{ color: "var(--text-secondary)" }}>
                         {formatPct(b.percentage)} · {b.count.toLocaleString()} units
                       </p>
