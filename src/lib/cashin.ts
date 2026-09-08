@@ -155,12 +155,16 @@ const NON_RENTAL_ITEM_KEYWORDS = [
   "card member",
 ];
 
+// Real invoices show deposit entries as an ordinary `type: "revenue"` line with
+// desc "Deposit" — the structured `type: "deposit"` value documented by Storeganise
+// doesn't actually appear in practice, so desc is checked either way.
+function isDepositEntry(entry: StoreganiseInvoiceEntry): boolean {
+  return entry.type === "deposit" || (entry.desc ?? "").toLowerCase().includes("deposit");
+}
+
 function classifyEntry(entry: StoreganiseInvoiceEntry, isFirstInvoiceForRental: boolean): CashinBucket {
   const desc = (entry.desc ?? "").toLowerCase();
-  // Real invoices show deposit entries as an ordinary `type: "revenue"` line with
-  // desc "Deposit" — the structured `type: "deposit"` value documented by Storeganise
-  // doesn't actually appear in practice, so desc is checked either way.
-  if (entry.type === "deposit" || desc.includes("deposit")) return "deposit";
+  if (isDepositEntry(entry)) return "deposit";
   if (desc.includes(LATE_FEE_KEYWORD)) return "lateFee";
   if (NON_RENTAL_ITEM_KEYWORDS.some((k) => desc.includes(k))) return "item";
   if (desc.includes("rent")) return isFirstInvoiceForRental ? "newRent" : "extension";
@@ -174,6 +178,43 @@ function classifyEntry(entry: StoreganiseInvoiceEntry, isFirstInvoiceForRental: 
 // cash-in by whatever deposit money came in that period — hasn't been exercised
 // against real transaction volume yet, so this tradeoff hasn't come up in practice.
 const MAX_INVOICES_TO_CATEGORIZE = 400;
+
+// Cheap path for the "pace vs last month" comparison, which only ever needs a
+// single total (never New Rent/Extension). Unlike getCashinReport, this skips
+// resolveFirstInvoicePerRental entirely — that per-rental invoice-history lookup
+// is the most expensive part of the full report and isn't needed just to exclude
+// deposits, so running it twice per page load (once for MTD, once for pace) was
+// the main reason /cash-in felt slow enough to need a manual refresh.
+export async function getCashinTotalExcludingDeposit(start: string, end: string): Promise<number> {
+  const payments = await fetchPayments(start, end);
+  const uniqueInvoiceIds = Array.from(new Set(payments.map((p) => p.invoice.id)));
+
+  if (uniqueInvoiceIds.length > MAX_INVOICES_TO_CATEGORIZE) {
+    // Same fail-soft tradeoff as the full report's fallback: without entries,
+    // deposits can't be told apart from revenue, so this may overstate the total.
+    return payments.reduce((sum, p) => sum + p.amount, 0);
+  }
+
+  const invoices = await fetchInvoicesWithEntries(uniqueInvoiceIds);
+  const invoiceById = new Map(invoices.map((inv) => [inv.id, inv]));
+
+  let total = 0;
+  for (const payment of payments) {
+    const invoice = invoiceById.get(payment.invoice.id);
+    if (!invoice || invoice.entries.length === 0) {
+      total += payment.amount;
+      continue;
+    }
+    let entriesSum = 0;
+    let depositSum = 0;
+    for (const entry of invoice.entries) {
+      entriesSum += entry.total;
+      if (isDepositEntry(entry)) depositSum += entry.total;
+    }
+    total += entriesSum > 0 ? Math.round(((entriesSum - depositSum) / entriesSum) * payment.amount) : payment.amount;
+  }
+  return total;
+}
 
 export async function getCashinReport(start: string, end: string): Promise<CashinReport> {
   const [payments, sites] = await Promise.all([fetchPayments(start, end), fetchSites()]);

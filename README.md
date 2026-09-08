@@ -106,20 +106,27 @@ Open [http://localhost:3000](http://localhost:3000) — you'll be redirected to
   live on every request for the current month-to-date and for the "pace"
   comparison range (the same day-of-month cutoff last month, e.g. 1–7 September
   compared against 1–7 August — capped to the shorter month where relevant, so
-  Mar 31 compares against Feb 28/29). Both the MTD report and the pace
-  comparison go through the same `getCashinReport`, which additionally fetches
-  each unique invoice's line items (`include=entries`, batched at 40 per
-  request per Storeganise's own guidance against larger `include` lists) to
-  classify every line into New Rent, Extension, Late Fee, Non-rental Item, or
-  Tidak Terklasifikasi (uncategorized) — Storeganise has no field for any of
-  these distinctions:
+  Mar 31 compares against Feb 28/29). The MTD report (`getCashinReport`)
+  additionally fetches each unique invoice's line items (`include=entries`,
+  batched at 40 per request per Storeganise's own guidance against larger
+  `include` lists) to classify every line into New Rent, Extension, Late Fee,
+  Non-rental Item, or Tidak Terklasifikasi (uncategorized) — Storeganise has
+  no field for any of these distinctions. The MTD report and the pace
+  comparison run concurrently (`Promise.all`, not sequential awaits — an
+  earlier version awaited them one after another, which doubled `/api/cashin`'s
+  latency for no reason and was the main reason the page needed a manual
+  refresh to load). The pace comparison also uses a separate, cheaper
+  `getCashinTotalExcludingDeposit` rather than the full report a second time:
+  it only ever needs a total, never the New Rent/Extension split, so it skips
+  the per-rental invoice-history lookup below entirely — the most expensive
+  part of categorization, and unnecessary for a total.
   - **Security deposits are excluded from cash-in entirely**, tracked
     separately as `depositTotal` — a deposit (one month's rent, collected from
     new tenants) is a refundable liability, not revenue, so it's never rolled
     into `totals`/`total` or any of the five categories. Both the MTD and pace
-    totals go through this same exclusion, so the "vs pace" comparison stays
-    apples-to-apples. Detected by matching "deposit" in the entry's free-text
-    `desc`, same as Late Fee/Non-rental Item below — Storeganise documents a
+    totals exclude deposits (via `isDepositEntry`, shared by both code paths),
+    so the "vs pace" comparison stays apples-to-apples. Detected by matching
+    "deposit" in the entry's free-text `desc` — Storeganise documents a
     structured `type: "deposit"` value, but real invoices don't actually use
     it (a real deposit line came through as an ordinary `type: "revenue"`
     entry with `desc: "Deposit"`), so the desc check is the one that matters

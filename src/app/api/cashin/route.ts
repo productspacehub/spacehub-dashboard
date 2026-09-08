@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import {
   firstOfMonth,
   getCashinReport,
+  getCashinTotalExcludingDeposit,
   jakartaTodayForCashin,
   sameDayLastMonthRange,
   type CashinReport,
@@ -23,18 +24,15 @@ export async function GET() {
     const mtdStart = firstOfMonth(today);
     const paceRange = sameDayLastMonthRange(today);
 
-    const report = await getCashinReport(mtdStart, today);
-
-    // The pace comparison is a nice-to-have on top of the report above — degrade to
-    // no comparison rather than failing the whole request if it errors out. Uses the
-    // same full categorization as the MTD report (not just a raw payments sum) so
-    // the comparison is apples-to-apples: both sides exclude deposits.
-    let paceTotal: number | null = null;
-    try {
-      paceTotal = (await getCashinReport(paceRange.start, paceRange.end)).total;
-    } catch {
-      paceTotal = null;
-    }
+    // Run the MTD report and the pace comparison concurrently — they're
+    // independent date ranges, and running them sequentially was doubling this
+    // route's latency for no reason. The pace comparison is a nice-to-have on
+    // top of the report, so it degrades to no comparison rather than failing
+    // the whole request if it errors out.
+    const [report, paceTotal] = await Promise.all([
+      getCashinReport(mtdStart, today),
+      getCashinTotalExcludingDeposit(paceRange.start, paceRange.end).catch(() => null),
+    ]);
 
     const deltaPct =
       paceTotal !== null && paceTotal > 0 ? ((report.total - paceTotal) / paceTotal) * 100 : null;
