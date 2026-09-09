@@ -30,6 +30,18 @@ function formatPeriodLabel(start: string, end: string): string {
   return `${startDay}–${endLabel}`;
 }
 
+function currentMonthKey(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+}
+
+function previousMonthKey(key: string): string {
+  const [y, m] = key.split("-").map(Number);
+  const prevMonth = m === 1 ? 12 : m - 1;
+  const prevYear = m === 1 ? y - 1 : y;
+  return `${prevYear}-${String(prevMonth).padStart(2, "0")}`;
+}
+
 export default function CashinPage() {
   const { data: session } = useSession();
   const [data, setData] = useState<CashinResponse | null>(null);
@@ -37,15 +49,19 @@ export default function CashinPage() {
   const [loading, setLoading] = useState(true);
   const [txCategory, setTxCategory] = useState<CashinBucket | null>(null);
   const [txSite, setTxSite] = useState<string>("all");
+  const [period, setPeriod] = useState<string>("current");
+  const [customMonthValue, setCustomMonthValue] = useState<string>(() => previousMonthKey(currentMonthKey()));
   const abortRef = useRef<AbortController | null>(null);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (periodValue: string) => {
     abortRef.current?.abort();
     const controller = new AbortController();
     abortRef.current = controller;
 
     try {
-      const res = await fetch("/api/cashin", { signal: controller.signal });
+      const res = await fetch(`/api/cashin?period=${encodeURIComponent(periodValue)}`, {
+        signal: controller.signal,
+      });
       const body = await res.json();
       if (!res.ok) {
         throw new Error(body?.error ?? `Request failed with status ${res.status}`);
@@ -61,21 +77,26 @@ export default function CashinPage() {
   }, []);
 
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- initial fetch + poll, state settles asynchronously in `load`
-    load();
-    const id = setInterval(load, REFRESH_INTERVAL_MS);
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- fetch on mount/period change + poll, state settles asynchronously in `load`
+    load(period);
+    const id = setInterval(() => load(period), REFRESH_INTERVAL_MS);
     return () => {
       clearInterval(id);
       abortRef.current?.abort();
     };
-  }, [load]);
+  }, [load, period]);
 
   const bestDay = data?.byDay.reduce(
     (best, d) => (!best || d.total > best.total ? d : best),
     data?.byDay[0]
   );
 
-  const paceMonthLabel = data ? formatDateLabel(data.pace.period.start, { month: "long" }) : "";
+  const isCustomPeriodActive = period !== "current" && period !== "last";
+  const comparisonMonthShort = data ? formatDateLabel(data.comparison.period.start, { month: "long" }) : "";
+  const comparisonMonthLabel = data
+    ? formatDateLabel(data.comparison.period.start, { month: "long", year: "numeric" })
+    : "";
+  const periodMonthLabel = data ? formatDateLabel(data.period.start, { month: "long", year: "numeric" }) : "";
 
   return (
     <div className="min-h-screen px-6 py-10 sm:px-10">
@@ -89,7 +110,11 @@ export default function CashinPage() {
             </h1>
           </div>
           <div className="flex items-baseline gap-4">
-            <button onClick={load} className="text-sm hover:underline" style={{ color: "var(--text-secondary)" }}>
+            <button
+              onClick={() => load(period)}
+              className="text-sm hover:underline"
+              style={{ color: "var(--text-secondary)" }}
+            >
               Refresh now
             </button>
             {session?.user?.email && (
@@ -120,6 +145,59 @@ export default function CashinPage() {
           </div>
         )}
 
+        <div className="mb-2 flex flex-wrap items-center gap-2">
+          <button
+            onClick={() => setPeriod("current")}
+            className="rounded-full px-3 py-1.5 text-sm font-medium"
+            style={{
+              background: period === "current" ? "var(--series-1)" : "transparent",
+              color: period === "current" ? "var(--background)" : "var(--text-secondary)",
+              border: period === "current" ? "none" : "1px solid var(--gridline)",
+            }}
+          >
+            Bulan ini
+          </button>
+          <button
+            onClick={() => setPeriod("last")}
+            className="rounded-full px-3 py-1.5 text-sm font-medium"
+            style={{
+              background: period === "last" ? "var(--series-1)" : "transparent",
+              color: period === "last" ? "var(--background)" : "var(--text-secondary)",
+              border: period === "last" ? "none" : "1px solid var(--gridline)",
+            }}
+          >
+            Bulan lalu
+          </button>
+          <label
+            className="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-medium"
+            style={{
+              background: isCustomPeriodActive ? "var(--series-1)" : "transparent",
+              color: isCustomPeriodActive ? "var(--background)" : "var(--text-secondary)",
+              border: isCustomPeriodActive ? "none" : "1px solid var(--gridline)",
+            }}
+          >
+            Bulan lain:
+            <input
+              type="month"
+              max={currentMonthKey()}
+              value={isCustomPeriodActive ? period : customMonthValue}
+              onChange={(e) => {
+                if (!e.target.value) return;
+                setCustomMonthValue(e.target.value);
+                setPeriod(e.target.value);
+              }}
+              style={{ background: "transparent", border: "none", color: "inherit", font: "inherit" }}
+            />
+          </label>
+        </div>
+        {data && (
+          <p className="mb-6 text-xs" style={{ color: "var(--text-muted)" }}>
+            {data.isCurrentMonth
+              ? "Bulan berjalan — angka bertambah tiap ada pembayaran baru masuk."
+              : "Bulan yang sudah selesai — angka final, tidak akan berubah lagi."}
+          </p>
+        )}
+
         {loading && !data && <p style={{ color: "var(--text-secondary)" }}>Loading cash-in data…</p>}
 
         {data && (
@@ -131,16 +209,16 @@ export default function CashinPage() {
               <div className="flex flex-wrap items-baseline justify-between gap-6">
                 <div>
                   <p className="mb-1 text-sm" style={{ color: "var(--text-secondary)" }}>
-                    Total cash-in bulan ini
+                    {data.isCurrentMonth ? "Total cash-in bulan ini" : `Total cash-in ${periodMonthLabel}`}
                   </p>
                   <div className="flex flex-wrap items-baseline gap-3">
                     <p className="text-4xl font-bold" style={{ color: "var(--text-primary)" }}>
                       {formatIdr(data.total)}
                     </p>
                     <DeltaBadge
-                      value={data.pace.deltaPct}
+                      value={data.comparison.deltaPct}
                       format="percent"
-                      label={`vs pace ${paceMonthLabel}`}
+                      label={data.isCurrentMonth ? `vs pace ${comparisonMonthShort}` : `vs ${comparisonMonthShort}`}
                     />
                   </div>
                   <p className="mt-2 text-xs" style={{ color: "var(--text-muted)" }}>
@@ -148,19 +226,22 @@ export default function CashinPage() {
                   </p>
                   {data.depositTotal > 0 && (
                     <p className="mt-1 text-xs" style={{ color: "var(--text-muted)" }}>
-                      + {formatIdr(data.depositTotal)} security deposit dikumpulkan bulan ini — tidak termasuk
-                      di atas karena wajib direfund, bukan revenue
+                      + {formatIdr(data.depositTotal)} security deposit dikumpulkan
+                      {data.isCurrentMonth ? " bulan ini" : ` di ${periodMonthLabel}`} — tidak termasuk di atas
+                      karena wajib direfund, bukan revenue
                     </p>
                   )}
                 </div>
                 <div className="flex flex-wrap gap-6">
-                  {data.pace.total !== null && (
+                  {data.comparison.total !== null && (
                     <div>
                       <p className="text-[11px] tracking-wide uppercase" style={{ color: "var(--text-muted)" }}>
-                        Pace {paceMonthLabel} ({formatPeriodLabel(data.pace.period.start, data.pace.period.end)})
+                        {data.isCurrentMonth
+                          ? `Pace ${comparisonMonthShort} (${formatPeriodLabel(data.comparison.period.start, data.comparison.period.end)})`
+                          : comparisonMonthLabel}
                       </p>
                       <p className="text-lg font-semibold" style={{ color: "var(--text-primary)" }}>
-                        {formatIdr(data.pace.total)}
+                        {formatIdr(data.comparison.total)}
                       </p>
                     </div>
                   )}
@@ -291,7 +372,7 @@ export default function CashinPage() {
                 if (filtered.length === 0) {
                   return (
                     <p className="text-sm" style={{ color: "var(--text-muted)" }}>
-                      Tidak ada transaksi untuk kombinasi kategori/site ini di periode berjalan.
+                      Tidak ada transaksi untuk kombinasi kategori/site ini di periode ini.
                     </p>
                   );
                 }

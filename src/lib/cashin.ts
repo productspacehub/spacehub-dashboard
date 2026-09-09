@@ -381,3 +381,26 @@ export function sameDayLastMonthRange(dateStr: string): { start: string; end: st
     end: `${year}-${pad(month)}-${pad(cappedDay)}`,
   };
 }
+
+// --- period selector helpers (Bulan ini / Bulan lalu / Bulan lain) ---
+
+export function isCurrentJakartaMonth(yearMonth: string): boolean {
+  return yearMonth === jakartaTodayForCashin().slice(0, 7);
+}
+
+export function previousMonthKey(yearMonth: string): string {
+  const [year, month] = yearMonth.split("-").map(Number);
+  const prevMonth = month === 1 ? 12 : month - 1;
+  const prevYear = month === 1 ? year - 1 : year;
+  return `${prevYear}-${String(prevMonth).padStart(2, "0")}`;
+}
+
+// Full calendar-month range for a closed month (both start and end are that
+// month's actual bounds — unlike the current month, which is always capped at
+// today).
+export function monthRange(yearMonth: string): { start: string; end: string } {
+  const [year, month] = yearMonth.split("-").map(Number);
+  const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return { start: `${yearMonth}-01`, end: `${yearMonth}-${pad(lastDay)}` };
+}

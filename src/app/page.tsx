@@ -153,7 +153,7 @@ export default function Home() {
                     {formatIdr(cashin.data.total)}
                   </p>
                   <DeltaBadge
-                    value={cashin.data.pace.deltaPct}
+                    value={cashin.data.comparison.deltaPct}
                     format="percent"
                     label="vs pace bulan lalu"
                   />
