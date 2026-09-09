@@ -57,6 +57,7 @@ export default function CashinPage() {
     abortRef.current?.abort();
     const controller = new AbortController();
     abortRef.current = controller;
+    setLoading(true);
 
     try {
       const res = await fetch(`/api/cashin?period=${encodeURIComponent(periodValue)}`, {
@@ -189,6 +190,15 @@ export default function CashinPage() {
               style={{ background: "transparent", border: "none", color: "inherit", font: "inherit" }}
             />
           </label>
+          {loading && data && (
+            <span className="inline-flex items-center gap-2 text-xs" style={{ color: "var(--text-muted)" }}>
+              <span
+                className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-current"
+                style={{ borderTopColor: "transparent", color: "var(--series-1)" }}
+              />
+              Memuat…
+            </span>
+          )}
         </div>
         {data && (
           <p className="mb-6 text-xs" style={{ color: "var(--text-muted)" }}>
@@ -201,7 +211,13 @@ export default function CashinPage() {
         {loading && !data && <p style={{ color: "var(--text-secondary)" }}>Loading cash-in data…</p>}
 
         {data && (
-          <>
+          <div
+            style={{
+              opacity: loading ? 0.5 : 1,
+              transition: "opacity 150ms ease",
+              pointerEvents: loading ? "none" : "auto",
+            }}
+          >
             <section
               className="mb-8 rounded-2xl border p-6"
               style={{ background: "var(--surface-1)", borderColor: "var(--gridline)" }}
@@ -544,7 +560,7 @@ export default function CashinPage() {
             <p className="mt-8 text-xs" style={{ color: "var(--text-muted)" }}>
               Last updated {new Date(data.generatedAt).toLocaleTimeString()}
             </p>
-          </>
+          </div>
         )}
       </div>
     </div>
