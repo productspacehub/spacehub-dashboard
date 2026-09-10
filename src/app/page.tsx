@@ -7,8 +7,10 @@ import { Meter } from "@/components/Meter";
 import { DeltaBadge } from "@/components/DeltaBadge";
 import { ModuleCard } from "@/components/ModuleCard";
 import { CASHIN_CATEGORY_COLORS, CASHIN_CATEGORY_ORDER, formatIdr } from "@/components/CashinDailyChart";
+import { MOVE_ACTIVITY_COLORS } from "@/components/MoveActivityChart";
 import type { OccupancySnapshotWithDelta } from "@/lib/snapshots";
 import type { CashinResponse } from "@/app/api/cashin/route";
+import type { MoveActivityResponse } from "@/app/api/move-activity/route";
 
 const REFRESH_INTERVAL_MS = 60_000;
 
@@ -60,6 +62,7 @@ export default function Home() {
   const { data: session } = useSession();
   const occupancy = useAutoRefresh<OccupancySnapshotWithDelta>("/api/occupancy");
   const cashin = useAutoRefresh<CashinResponse>("/api/cashin");
+  const moveActivity = useAutoRefresh<MoveActivityResponse>("/api/move-activity");
 
   return (
     <div className="min-h-screen px-6 py-10 sm:px-10">
@@ -77,6 +80,7 @@ export default function Home() {
               onClick={() => {
                 occupancy.reload();
                 cashin.reload();
+                moveActivity.reload();
               }}
               className="text-sm hover:underline"
               style={{ color: "var(--text-secondary)" }}
@@ -102,7 +106,7 @@ export default function Home() {
           Ringkasan modul
         </p>
 
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
           <ModuleCard label="Occupancy" dotColor="var(--series-1)" href="/occupancy">
             {occupancy.error && (
               <p className="text-xs" style={{ color: "var(--status-critical)" }}>
@@ -174,6 +178,64 @@ export default function Home() {
                 </div>
                 <p className="text-xs" style={{ color: "var(--text-muted)" }}>
                   Bulan berjalan · {cashin.data.bySite.length} site
+                </p>
+              </>
+            )}
+          </ModuleCard>
+
+          <ModuleCard label="Move Activity" dotColor={MOVE_ACTIVITY_COLORS.extend} href="/move-activity">
+            {moveActivity.error && (
+              <p className="text-xs" style={{ color: "var(--status-critical)" }}>
+                {moveActivity.error}
+              </p>
+            )}
+            {moveActivity.loading && !moveActivity.data && (
+              <p className="text-sm" style={{ color: "var(--text-secondary)" }}>
+                Loading…
+              </p>
+            )}
+            {moveActivity.data && (
+              <>
+                <div className="flex flex-wrap items-baseline gap-2">
+                  <p
+                    className="text-3xl font-bold"
+                    style={{ color: moveActivity.data.totals.net >= 0 ? "var(--status-good)" : "var(--status-critical)" }}
+                  >
+                    {moveActivity.data.totals.net > 0 ? `+${moveActivity.data.totals.net}` : moveActivity.data.totals.net} unit
+                  </p>
+                  <DeltaBadge
+                    value={
+                      moveActivity.data.comparison.totals
+                        ? moveActivity.data.totals.net - moveActivity.data.comparison.totals.net
+                        : null
+                    }
+                    label="vs pace bulan lalu"
+                  />
+                </div>
+                <div
+                  className="flex h-2.5 w-full gap-0.5 overflow-hidden rounded-full"
+                  style={{ background: "var(--background)" }}
+                >
+                  {(["moveIn", "moveOut", "extend"] as const)
+                    .filter((metric) => moveActivity.data!.totals[metric] > 0)
+                    .map((metric) => {
+                      const activityTotal =
+                        moveActivity.data!.totals.moveIn +
+                        moveActivity.data!.totals.moveOut +
+                        moveActivity.data!.totals.extend;
+                      return (
+                        <div
+                          key={metric}
+                          style={{
+                            width: `${(moveActivity.data!.totals[metric] / (activityTotal || 1)) * 100}%`,
+                            background: MOVE_ACTIVITY_COLORS[metric],
+                          }}
+                        />
+                      );
+                    })}
+                </div>
+                <p className="text-xs" style={{ color: "var(--text-muted)" }}>
+                  Bulan berjalan · {moveActivity.data.bySite.length} site
                 </p>
               </>
             )}

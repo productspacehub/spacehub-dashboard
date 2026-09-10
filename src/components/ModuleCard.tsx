@@ -18,7 +18,10 @@ export function ModuleCard({
       style={{ background: "var(--surface-1)", borderColor: "var(--gridline)" }}
     >
       <div className="flex items-center justify-between gap-3">
-        <span className="flex items-center gap-2 text-sm font-semibold" style={{ color: "var(--text-secondary)" }}>
+        <span
+          className="flex items-center gap-2 text-sm font-semibold whitespace-nowrap"
+          style={{ color: "var(--text-secondary)" }}
+        >
           <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: dotColor }} />
           {label}
         </span>

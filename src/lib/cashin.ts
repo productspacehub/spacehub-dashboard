@@ -52,7 +52,10 @@ export type CashinReport = {
   entries: CashinTransactionDetail[];
 };
 
-type StoreganisePayment = {
+// Exported for reuse by src/lib/moveActivity.ts, which needs the same payment
+// records (and the invoice.unitRentalId/id they carry) to count Extend invoices,
+// without needing entries/amount categorization at all.
+export type StoreganisePayment = {
   id: string;
   amount: number;
   date: string; // YYYY-MM-DD
@@ -82,7 +85,7 @@ type StoreganiseInvoiceWithEntries = {
   entries: StoreganiseInvoiceEntry[];
 };
 
-async function fetchPayments(start: string, end: string): Promise<StoreganisePayment[]> {
+export async function fetchPayments(start: string, end: string): Promise<StoreganisePayment[]> {
   return paginate<StoreganisePayment>(`/v1/admin/invoices/payments?start=${start}&end=${end}`);
 }
 
@@ -110,7 +113,10 @@ async function fetchInvoicesWithEntries(invoiceIds: string[]): Promise<Storegani
 // (same one-unitRentalId-per-request constraint noted for the occupied-units invoice
 // lookup elsewhere), so this is one request per unique rental referenced this period —
 // acceptable since it's bounded by the month's transaction count, not the whole portfolio.
-async function resolveFirstInvoicePerRental(rentalIds: string[]): Promise<Map<string, string | null>> {
+// Exported for reuse by src/lib/moveActivity.ts's Extend count, which needs the
+// exact same "is this a rental's first-ever invoice" lookup as New Rent vs
+// Extension above — just counted per day instead of summed as revenue.
+export async function resolveFirstInvoicePerRental(rentalIds: string[]): Promise<Map<string, string | null>> {
   const entries = await Promise.all(
     rentalIds.map(async (rentalId): Promise<[string, string | null]> => {
       try {
@@ -177,7 +183,9 @@ function classifyEntry(entry: StoreganiseInvoiceEntry, isFirstInvoiceForRental: 
 // apart from real revenue, so the reported total in this fallback path may overstate
 // cash-in by whatever deposit money came in that period — hasn't been exercised
 // against real transaction volume yet, so this tradeoff hasn't come up in practice.
-const MAX_INVOICES_TO_CATEGORIZE = 400;
+// Exported so src/lib/moveActivity.ts applies the same volume cap to its own
+// (cheaper, entries-free) Extend count, rather than picking an independent number.
+export const MAX_INVOICES_TO_CATEGORIZE = 400;
 
 // Cheap path for the "pace vs last month" comparison, which only ever needs a
 // single total (never New Rent/Extension). Unlike getCashinReport, this skips
