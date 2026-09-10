@@ -169,6 +169,39 @@ Open [http://localhost:3000](http://localhost:3000) — you'll be redirected to
     skipped (the total stays accurate; the breakdown reports everything as
     uncategorized with a `skippedCategorization` flag) rather than risk a slow
     request — this hasn't been exercised against real transaction volume yet.
+- `src/lib/moveActivity.ts` / `/api/move-activity` / `/move-activity` power the
+  Move Activity module — daily Move In, Move Out, and Extend (renewal) counts
+  per site, with the same "Bulan ini / Bulan lalu / Bulan lain" period selector
+  as Cash-in (Storeganise keeps full rental/invoice history, so no snapshot DB
+  is needed here either).
+  - **Move In**: unit rentals whose `startDate` falls in the period, via
+    `GET /v1/admin/unit-rentals?start=<from>,<to>` — excluding `submitted`,
+    `cancelled`, and `abandoned` states (a rental that never actually
+    proceeded to occupancy), everything else counts as a real move-in.
+  - **Move Out**: unit rentals with `state=ended` and an `endDate` in the
+    period, via `GET /v1/admin/unit-rentals?state=ended&end=<from>,<to>` — read
+    directly from Storeganise's own structured field. This replaces an earlier
+    manual approach (Move In count minus the day's occupancy change), which is
+    fragile to same-day move-out+move-in pairs (net occupancy unchanged, but
+    one of each happened) and to occupancy snapshots only being taken once a
+    day. **Not yet validated against real production volume** — the
+    methodology note on `/move-activity` flags this; compare against manual
+    counts for a few weeks before fully trusting it over the old approach.
+  - **Extend**: invoices paid in the period that are *not* the rental's
+    first-ever invoice — the exact same "first invoice per rental" resolution
+    Cash-in uses for its New Rent vs Extension split (`resolveFirstInvoicePerRental`,
+    exported from `src/lib/cashin.ts` and reused here), just counted per
+    invoice instead of summed as revenue. Since `payment.invoice` already
+    carries `unitRentalId`, this needs no separate invoice/entries fetch —
+    only `fetchPayments`, also reused from Cash-in. Same 400-unique-invoice
+    cap as Cash-in (`MAX_INVOICES_TO_CATEGORIZE`, also exported) — above it,
+    Extend is skipped for the period (`skippedExtendCategorization`) rather
+    than risk a slow request; Move In/Move Out are unaffected since they don't
+    depend on this lookup.
+  - The daily chart stacks Move In and Extend above a zero baseline (two
+    colors, one stack) with Move Out as a separate bar below it — mirroring
+    the team's existing weekly "Activation vs Churn" report, just re-colored
+    per category and without that report's trendlines.
 - `src/auth.ts` configures Auth.js (NextAuth v5) with a Google provider; its
   `signIn` callback rejects any email not ending in `@spacehub.id`.
 - `src/proxy.ts` (Next.js's proxy/middleware convention) requires a valid
@@ -203,3 +236,10 @@ response body for the list endpoints, so `fetchSites`/`fetchUnits` in
 `{ data: [...] }` / `{ results: [...] }` / `{ items: [...] }` object. Confirmed
 against a real response to be a bare array; the wrapped-object fallback in
 `extractList` can be removed once that's certain to always hold.
+
+Move Activity's Move Out figure (`state=ended` + `endDate` range on
+`/v1/admin/unit-rentals`) is based on reading Storeganise's documented API
+schema, not a test against real production data — this environment had no
+live Storeganise credentials to verify it against. Cross-check it against
+manual counts for a few weeks after this ships before treating it as
+authoritative over the team's existing (delta-based) tracking.
