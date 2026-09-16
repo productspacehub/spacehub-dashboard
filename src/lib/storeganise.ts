@@ -45,6 +45,12 @@ export type StoreganiseInvoice = {
   paid?: string;
 };
 
+export type StoreganiseInvoiceDetail = StoreganiseInvoice & {
+  total?: number;
+  siteId?: string;
+  owner?: { id: string; name?: string; email?: string };
+};
+
 export type SiteOccupancy = {
   siteId: string;
   siteName: string;
@@ -144,6 +150,17 @@ async function fetchRecentInvoices(): Promise<StoreganiseInvoice[]> {
   since.setDate(since.getDate() - RECENT_INVOICE_WINDOW_DAYS);
   const start = since.toISOString().slice(0, 10);
   return paginate<StoreganiseInvoice>(`/v1/admin/invoices?start=${start}`);
+}
+
+export async function fetchInvoiceById(invoiceId: string): Promise<StoreganiseInvoiceDetail> {
+  const url = new URL(`${BASE_URL}/v1/admin/invoices/${invoiceId}`);
+  url.searchParams.set("include", "owner");
+
+  const res = await fetch(url, { headers: authHeaders(), cache: "no-store" });
+  if (!res.ok) {
+    throw new Error(`Storeganise API error ${res.status} fetching invoice ${invoiceId}: ${await res.text()}`);
+  }
+  return res.json();
 }
 
 // There's no bulk/multi-unit way to read a unit's action history, so this is one API
