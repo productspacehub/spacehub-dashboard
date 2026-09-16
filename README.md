@@ -203,7 +203,13 @@ Open [http://localhost:3000](http://localhost:3000) — you'll be redirected to
     the team's existing weekly "Activation vs Churn" report, just re-colored
     per category and without that report's trendlines.
 - `src/auth.ts` configures Auth.js (NextAuth v5) with a Google provider; its
-  `signIn` callback rejects any email not ending in `@spacehub.id`.
+  `signIn` callback rejects any email not ending in `@spacehub.id`, with one
+  deliberate carve-out: exact emails listed in the `EXTRA_ALLOWED_EMAILS` env
+  var (comma-separated) are let in too — for external stakeholders who need
+  dashboard access without a spacehub.id account, without opening the domain
+  rule up generally. Google OAuth itself doesn't need any reconfiguration for
+  this — a Gmail account authenticates with Google just fine; the domain
+  check is purely this app's own callback.
 - `src/proxy.ts` (Next.js's proxy/middleware convention) requires a valid
   session for every route except `/login` and the auth API routes — an
   unauthenticated request to a page redirects to `/login`, and to an API
@@ -219,6 +225,8 @@ Deploy to Vercel and set these environment variables in the project settings
 - `DATABASE_URL` — auto-added when you connect a Postgres storage (Neon) to
   the project under Settings > Storage; no manual setup needed
 - `CRON_SECRET` — generate with `openssl rand -base64 33`
+- `EXTRA_ALLOWED_EMAILS` (optional) — comma-separated exact emails to let in
+  besides `@spacehub.id`, e.g. an external stakeholder's personal Gmail
 
 Remember to add the deployed URL's `/api/auth/callback/google` as an
 authorized redirect URI in the Google Cloud OAuth client — Google will reject
