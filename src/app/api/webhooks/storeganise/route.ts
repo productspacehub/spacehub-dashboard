@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createHmac, timingSafeEqual } from "crypto";
-import { fetchInvoiceById } from "@/lib/storeganise";
+import { fetchInvoiceById, fetchUserById } from "@/lib/storeganise";
 import { sendSlackMessage } from "@/lib/slack";
 
 type StoreganiseWebhookEvent = {
@@ -8,6 +8,7 @@ type StoreganiseWebhookEvent = {
   data: {
     invoiceId?: string;
     to?: string;
+    userId?: string;
   };
 };
 
@@ -20,6 +21,35 @@ function isValidSignature(rawBody: string, signature: string | null, secret: str
   const expectedBuf = Buffer.from(expected);
   const actualBuf = Buffer.from(signature);
   return expectedBuf.length === actualBuf.length && timingSafeEqual(expectedBuf, actualBuf);
+}
+
+async function handleInvoiceEvent(event: StoreganiseWebhookEvent): Promise<void> {
+  const invoiceId = event.data.invoiceId;
+  if (!invoiceId) return;
+
+  // invoice.state.updated already tells us the resulting state directly. invoice.payments.updated
+  // doesn't (a partial payment fires the same event), so that case always needs a re-fetch below
+  // to confirm the invoice is actually fully paid before notifying.
+  if (event.type === "invoice.state.updated" && event.data.to !== "paid") return;
+
+  const invoice = await fetchInvoiceById(invoiceId);
+  if (invoice.state !== "paid") return;
+
+  const ownerName = invoice.owner?.name ?? "Unknown tenant";
+  const amount = invoice.total !== undefined ? `Rp${invoice.total.toLocaleString("id-ID")}` : "-";
+
+  await sendSlackMessage(`:moneybag: Invoice *${invoice.sid ?? invoice.id}* from *${ownerName}* has been paid (${amount}).`);
+}
+
+async function handleUserCreatedEvent(event: StoreganiseWebhookEvent): Promise<void> {
+  const userId = event.data.userId;
+  if (!userId) return;
+
+  const user = await fetchUserById(userId);
+  const name = user.name ?? "Unknown";
+  const contact = [user.email, user.phone].filter(Boolean).join(" / ") || "no contact info";
+
+  await sendSlackMessage(`:bust_in_silhouette: New user signed up: *${name}* (${contact}) — follow up for unit reservation payment.`);
 }
 
 export async function POST(request: NextRequest) {
@@ -46,28 +76,15 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
 
-  const invoiceId = event.data?.invoiceId;
-  const isRelevantEvent = event.type === "invoice.payments.updated" || event.type === "invoice.state.updated";
-  if (!isRelevantEvent || !invoiceId) {
-    return NextResponse.json({ ok: true, skipped: true });
+  switch (event.type) {
+    case "invoice.payments.updated":
+    case "invoice.state.updated":
+      await handleInvoiceEvent(event);
+      break;
+    case "user.created":
+      await handleUserCreatedEvent(event);
+      break;
   }
-
-  // invoice.state.updated already tells us the resulting state directly. invoice.payments.updated
-  // doesn't (a partial payment fires the same event), so that case always needs a re-fetch below
-  // to confirm the invoice is actually fully paid before notifying.
-  if (event.type === "invoice.state.updated" && event.data.to !== "paid") {
-    return NextResponse.json({ ok: true, skipped: true });
-  }
-
-  const invoice = await fetchInvoiceById(invoiceId);
-  if (invoice.state !== "paid") {
-    return NextResponse.json({ ok: true, skipped: true });
-  }
-
-  const ownerName = invoice.owner?.name ?? "Unknown tenant";
-  const amount = invoice.total !== undefined ? `Rp${invoice.total.toLocaleString("id-ID")}` : "-";
-
-  await sendSlackMessage(`:moneybag: Invoice *${invoice.sid ?? invoice.id}* from *${ownerName}* has been paid (${amount}).`);
 
   return NextResponse.json({ ok: true });
 }
