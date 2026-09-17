@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createHmac, timingSafeEqual } from "crypto";
-import { fetchInvoiceById, fetchUserById } from "@/lib/storeganise";
+import { fetchUserById } from "@/lib/storeganise";
 import { sendSlackMessage } from "@/lib/slack";
+import { notifyIfNewlyPaid } from "@/lib/invoiceNotifications";
 
 type StoreganiseWebhookEvent = {
   type: string;
@@ -28,17 +29,11 @@ async function handleInvoiceEvent(event: StoreganiseWebhookEvent): Promise<void>
   if (!invoiceId) return;
 
   // invoice.state.updated already tells us the resulting state directly. invoice.payments.updated
-  // doesn't (a partial payment fires the same event), so that case always needs a re-fetch below
-  // to confirm the invoice is actually fully paid before notifying.
+  // doesn't (a partial payment fires the same event), so that case always needs a re-fetch inside
+  // notifyIfNewlyPaid() to confirm the invoice is actually fully paid before notifying.
   if (event.type === "invoice.state.updated" && event.data.to !== "paid") return;
 
-  const invoice = await fetchInvoiceById(invoiceId);
-  if (invoice.state !== "paid") return;
-
-  const ownerName = invoice.owner?.name ?? "Unknown tenant";
-  const amount = invoice.total !== undefined ? `Rp${invoice.total.toLocaleString("id-ID")}` : "-";
-
-  await sendSlackMessage(`:moneybag: Invoice *${invoice.sid ?? invoice.id}* from *${ownerName}* has been paid (${amount}).`);
+  await notifyIfNewlyPaid(invoiceId);
 }
 
 async function handleUserCreatedEvent(event: StoreganiseWebhookEvent): Promise<void> {
