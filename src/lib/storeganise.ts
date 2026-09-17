@@ -152,6 +152,18 @@ async function fetchRecentInvoices(): Promise<StoreganiseInvoice[]> {
   return paginate<StoreganiseInvoice>(`/v1/admin/invoices?start=${start}`);
 }
 
+// Reconciliation window for the paid-invoice-notification cron: only needs to cover the
+// gap since the last run (this cron runs daily), so a few days is enough margin without
+// re-scanning the same large window fetchRecentInvoices() uses for occupancy matching.
+const RECONCILE_PAID_INVOICES_WINDOW_DAYS = 3;
+
+export async function fetchRecentlyPaidInvoices(): Promise<StoreganiseInvoice[]> {
+  const since = new Date();
+  since.setDate(since.getDate() - RECONCILE_PAID_INVOICES_WINDOW_DAYS);
+  const start = since.toISOString().slice(0, 10);
+  return paginate<StoreganiseInvoice>(`/v1/admin/invoices?state=paid&start=${start}`);
+}
+
 export async function fetchInvoiceById(invoiceId: string): Promise<StoreganiseInvoiceDetail> {
   const url = new URL(`${BASE_URL}/v1/admin/invoices/${invoiceId}`);
   url.searchParams.set("include", "owner");

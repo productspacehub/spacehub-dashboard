@@ -40,7 +40,26 @@ export function ensureSchema(): Promise<void> {
         created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
         PRIMARY KEY (snapshot_date, site_id)
       );
+
+      CREATE TABLE IF NOT EXISTS notified_paid_invoices (
+        invoice_id  TEXT PRIMARY KEY,
+        notified_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
     `).then(() => undefined);
   }
   return schemaReadyPromise;
+}
+
+// Storeganise's invoice-paid webhook is labeled BETA and has occasionally failed to
+// deliver at all (silently, with no error and no retry-exhausted alert). This table lets
+// both the webhook handler and a periodic reconciliation cron share one record of which
+// invoices have already been notified, so the cron can safely re-check recent invoices
+// without risking a duplicate Slack message for ones the webhook already caught.
+export async function isInvoiceNotified(invoiceId: string): Promise<boolean> {
+  const rows = await query("SELECT 1 FROM notified_paid_invoices WHERE invoice_id = $1", [invoiceId]);
+  return rows.length > 0;
+}
+
+export async function recordInvoiceNotified(invoiceId: string): Promise<void> {
+  await query("INSERT INTO notified_paid_invoices (invoice_id) VALUES ($1) ON CONFLICT DO NOTHING", [invoiceId]);
 }
