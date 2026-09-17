@@ -163,6 +163,23 @@ export async function fetchInvoiceById(invoiceId: string): Promise<StoreganiseIn
   return res.json();
 }
 
+export type StoreganiseUser = {
+  id: string;
+  name?: string;
+  email?: string;
+  phone?: string;
+};
+
+export async function fetchUserById(userId: string): Promise<StoreganiseUser> {
+  const url = new URL(`${BASE_URL}/v1/admin/users/${userId}`);
+
+  const res = await fetch(url, { headers: authHeaders(), cache: "no-store" });
+  if (!res.ok) {
+    throw new Error(`Storeganise API error ${res.status} fetching user ${userId}: ${await res.text()}`);
+  }
+  return res.json();
+}
+
 // There's no bulk/multi-unit way to read a unit's action history, so this is one API
 // call per currently-blocked unit — acceptable since blocked units are a small subset
 // of the total (tens, not hundreds). Actions come back newest-first, so the first
