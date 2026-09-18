@@ -8,7 +8,10 @@ import type { MoveActivityResponse } from "@/app/api/move-activity/route";
 import { MOVE_ACTIVITY_COLORS, MOVE_ACTIVITY_LABELS, MoveActivityChart } from "@/components/MoveActivityChart";
 import { DeltaBadge } from "@/components/DeltaBadge";
 
-const REFRESH_INTERVAL_MS = 60_000;
+// 4 hours — matches the home page's poll interval; move activity data
+// doesn't change fast enough to justify polling more often. Use "Refresh
+// now" sooner.
+const REFRESH_INTERVAL_MS = 4 * 60 * 60 * 1000;
 
 function formatDateLabel(dateStr: string, opts: Intl.DateTimeFormatOptions): string {
   return new Date(`${dateStr}T00:00:00`).toLocaleDateString("id-ID", opts);
@@ -68,7 +71,11 @@ export default function MoveActivityPage() {
       if (err instanceof DOMException && err.name === "AbortError") return;
       setError(err instanceof Error ? err.message : "Failed to load move activity data");
     } finally {
-      setLoading(false);
+      // `finally` runs even after the AbortError branch's early `return` above —
+      // without this guard, a superseded (aborted) call's finally would still
+      // flip loading back to false while the request that replaced it is still
+      // in flight (e.g. clicking another period pill before the first resolves).
+      if (abortRef.current === controller) setLoading(false);
     }
   }, []);
 

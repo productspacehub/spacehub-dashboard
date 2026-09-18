@@ -12,7 +12,10 @@ import type { OccupancySnapshotWithDelta } from "@/lib/snapshots";
 import type { CashinResponse } from "@/app/api/cashin/route";
 import type { MoveActivityResponse } from "@/app/api/move-activity/route";
 
-const REFRESH_INTERVAL_MS = 60_000;
+// 4 hours — this dashboard's data doesn't change fast enough to justify
+// polling more often, and occupancy/cash-in/move-activity all do non-trivial
+// Storeganise lookups on every refresh. Use "Refresh now" for anything sooner.
+const REFRESH_INTERVAL_MS = 4 * 60 * 60 * 1000;
 
 function formatPct(value: number): string {
   return `${value.toFixed(1)}%`;
@@ -28,6 +31,7 @@ function useAutoRefresh<T>(url: string) {
     abortRef.current?.abort();
     const controller = new AbortController();
     abortRef.current = controller;
+    setLoading(true);
 
     try {
       const res = await fetch(url, { signal: controller.signal });
@@ -41,7 +45,11 @@ function useAutoRefresh<T>(url: string) {
       if (err instanceof DOMException && err.name === "AbortError") return;
       setError(err instanceof Error ? err.message : "Failed to load data");
     } finally {
-      setLoading(false);
+      // `finally` runs even after the AbortError branch's early `return` above —
+      // without this guard, a superseded (aborted) call's finally would still
+      // flip loading back to false while the request that replaced it is still
+      // in flight (e.g. two "Refresh now" clicks in quick succession).
+      if (abortRef.current === controller) setLoading(false);
     }
   }, [url]);
 
@@ -107,7 +115,12 @@ export default function Home() {
         </p>
 
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          <ModuleCard label="Occupancy" dotColor="var(--series-1)" href="/occupancy">
+          <ModuleCard
+            label="Occupancy"
+            dotColor="var(--series-1)"
+            href="/occupancy"
+            loading={occupancy.loading && !!occupancy.data}
+          >
             {occupancy.error && (
               <p className="text-xs" style={{ color: "var(--status-critical)" }}>
                 {occupancy.error}
@@ -139,7 +152,12 @@ export default function Home() {
             )}
           </ModuleCard>
 
-          <ModuleCard label="Cash-in" dotColor={CASHIN_CATEGORY_COLORS.newRent} href="/cash-in">
+          <ModuleCard
+            label="Cash-in"
+            dotColor={CASHIN_CATEGORY_COLORS.newRent}
+            href="/cash-in"
+            loading={cashin.loading && !!cashin.data}
+          >
             {cashin.error && (
               <p className="text-xs" style={{ color: "var(--status-critical)" }}>
                 {cashin.error}
@@ -183,7 +201,12 @@ export default function Home() {
             )}
           </ModuleCard>
 
-          <ModuleCard label="Move Activity" dotColor={MOVE_ACTIVITY_COLORS.extend} href="/move-activity">
+          <ModuleCard
+            label="Move Activity"
+            dotColor={MOVE_ACTIVITY_COLORS.extend}
+            href="/move-activity"
+            loading={moveActivity.loading && !!moveActivity.data}
+          >
             {moveActivity.error && (
               <p className="text-xs" style={{ color: "var(--status-critical)" }}>
                 {moveActivity.error}
@@ -245,7 +268,7 @@ export default function Home() {
         {occupancy.data && (
           <p className="mt-8 text-xs" style={{ color: "var(--text-muted)" }}>
             Last updated {new Date(occupancy.data.generatedAt).toLocaleTimeString()} · refreshes every{" "}
-            {REFRESH_INTERVAL_MS / 1000}s
+            {REFRESH_INTERVAL_MS / 3_600_000}h
           </p>
         )}
       </div>
