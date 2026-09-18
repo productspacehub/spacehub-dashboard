@@ -74,7 +74,7 @@ export default function Home() {
 
   return (
     <div className="min-h-screen px-6 py-10 sm:px-10">
-      <div className="mx-auto max-w-3xl">
+      <div className="mx-auto max-w-4xl">
         <header className="mb-8 flex items-center justify-between gap-4">
           <div className="flex items-center gap-3">
             <Image src="/spacehub-logo.webp" alt="SpaceHub" width={121} height={36} priority />
@@ -133,7 +133,7 @@ export default function Home() {
             )}
             {occupancy.data && (
               <>
-                <div className="flex flex-wrap items-baseline gap-2">
+                <div className="flex flex-col items-start gap-1">
                   <p className="text-4xl font-bold" style={{ color: "var(--text-primary)" }}>
                     {formatPct(occupancy.data.overall.occupancyRate)}
                   </p>
@@ -170,7 +170,7 @@ export default function Home() {
             )}
             {cashin.data && (
               <>
-                <div className="flex flex-wrap items-baseline gap-2">
+                <div className="flex flex-col items-start gap-1">
                   <p className="text-3xl font-bold" style={{ color: "var(--text-primary)" }}>
                     {formatIdr(cashin.data.total)}
                   </p>
@@ -219,7 +219,7 @@ export default function Home() {
             )}
             {moveActivity.data && (
               <>
-                <div className="flex flex-wrap items-baseline gap-2">
+                <div className="flex flex-col items-start gap-1">
                   <p
                     className="text-3xl font-bold"
                     style={{ color: moveActivity.data.totals.net >= 0 ? "var(--status-good)" : "var(--status-critical)" }}

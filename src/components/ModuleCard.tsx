@@ -43,6 +43,7 @@ export function ModuleCard({
         </div>
       </div>
       <div
+        className="flex flex-col gap-3"
         style={{
           opacity: loading ? 0.5 : 1,
           transition: "opacity 150ms ease",
