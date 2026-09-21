@@ -53,6 +53,7 @@ export default function OccupancyDetailPage() {
     abortRef.current?.abort();
     const controller = new AbortController();
     abortRef.current = controller;
+    setLoading(true);
 
     try {
       const res = await fetch(`/api/occupancy/units?compareTo=${encodeURIComponent(compareToValue)}`, {
@@ -68,7 +69,11 @@ export default function OccupancyDetailPage() {
       if (err instanceof DOMException && err.name === "AbortError") return;
       setError(err instanceof Error ? err.message : "Failed to load unit data");
     } finally {
-      setLoading(false);
+      // `finally` runs even after the AbortError branch's early `return` above —
+      // without this guard, a superseded (aborted) call's finally would still
+      // flip loading back to false while the request that replaced it is still
+      // in flight (e.g. clicking another compare preset before the first resolves).
+      if (abortRef.current === controller) setLoading(false);
     }
   }, []);
 
@@ -217,8 +222,24 @@ export default function OccupancyDetailPage() {
                   {!(compareTo in COMPARE_PRESET_LABELS) ? compareTo : "Tanggal lain"}
                 </button>
               )}
+              {loading && (
+                <span className="inline-flex items-center gap-2 text-xs" style={{ color: "var(--text-muted)" }}>
+                  <span
+                    className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-current"
+                    style={{ borderTopColor: "transparent", color: "var(--series-1)" }}
+                  />
+                  Memuat…
+                </span>
+              )}
             </div>
 
+            <div
+              style={{
+                opacity: loading ? 0.5 : 1,
+                transition: "opacity 150ms ease",
+                pointerEvents: loading ? "none" : "auto",
+              }}
+            >
             <section
               className="mb-8 rounded-2xl border p-6"
               style={{ background: "var(--surface-1)", borderColor: "var(--gridline)" }}
@@ -499,6 +520,7 @@ export default function OccupancyDetailPage() {
             <p className="mt-8 text-xs" style={{ color: "var(--text-muted)" }}>
               Last updated {new Date(detail.generatedAt).toLocaleTimeString()}
             </p>
+            </div>
           </>
         )}
       </div>
