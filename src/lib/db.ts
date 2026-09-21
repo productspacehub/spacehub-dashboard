@@ -29,11 +29,28 @@ export async function query<T extends Record<string, unknown> = Record<string, u
 
 let schemaReadyPromise: Promise<void> | undefined;
 
+// Arbitrary constant for the advisory lock below — any fixed int64 works, it
+// just needs to be the same value everywhere this runs.
+const SCHEMA_LOCK_ID = 727384991;
+
 // Cheap to call on every request: after the first successful run in a warm
-// serverless instance, this is a no-op CREATE TABLE IF NOT EXISTS.
-export function ensureSchema(): Promise<void> {
-  if (!schemaReadyPromise) {
-    schemaReadyPromise = query(`
+// serverless instance, this is a no-op CREATE TABLE IF NOT EXISTS. On a
+// genuinely empty database though, Vercel can spin up several serverless
+// instances to serve concurrent requests (e.g. the home page's parallel
+// module fetches) — each cold-starting its own schemaReadyPromise and racing
+// to run these CREATE TABLE statements at once. "IF NOT EXISTS" alone isn't
+// safe against that: two transactions can both see "doesn't exist yet" and
+// collide creating the same table's row type in Postgres's pg_type catalog
+// ("duplicate key value violates unique constraint pg_type_typname_nsp_index").
+// pg_advisory_xact_lock serializes those instances around one connection —
+// whoever loses the race just finds the tables already there — and releases
+// automatically on commit/rollback, so it can't leak if this throws.
+async function createSchema(): Promise<void> {
+  const client = await getPool().connect();
+  try {
+    await client.query("BEGIN");
+    await client.query("SELECT pg_advisory_xact_lock($1)", [SCHEMA_LOCK_ID]);
+    await client.query(`
       CREATE TABLE IF NOT EXISTS occupancy_snapshots (
         snapshot_date   DATE NOT NULL,
         site_id         TEXT NOT NULL,
@@ -110,7 +127,24 @@ export function ensureSchema(): Promise<void> {
       CREATE INDEX IF NOT EXISTS bookings_status_idx ON bookings (status);
       CREATE INDEX IF NOT EXISTS bookings_container_idx ON bookings (container_id);
       CREATE INDEX IF NOT EXISTS bookings_customer_idx ON bookings (customer_id);
-    `).then(() => undefined);
+    `);
+    await client.query("COMMIT");
+  } catch (err) {
+    await client.query("ROLLBACK").catch(() => undefined);
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
+export function ensureSchema(): Promise<void> {
+  if (!schemaReadyPromise) {
+    // If this fails, let the next call retry from scratch instead of caching
+    // a rejected promise forever.
+    schemaReadyPromise = createSchema().catch((err) => {
+      schemaReadyPromise = undefined;
+      throw err;
+    });
   }
   return schemaReadyPromise;
 }
