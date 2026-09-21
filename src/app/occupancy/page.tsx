@@ -8,6 +8,7 @@ import type { StatusBreakdown } from "@/lib/storeganise";
 import type { UnitsDetailWithComparison } from "@/lib/snapshots";
 import { DeltaBadge } from "@/components/DeltaBadge";
 import { TrendChart } from "@/components/TrendChart";
+import { formatIdr } from "@/components/CashinDailyChart";
 
 type TabState = StatusBreakdown["state"];
 
@@ -101,8 +102,10 @@ export default function OccupancyDetailPage() {
   const showEmailColumn = selectedState === "occupied";
   const showReasonColumn = selectedState === "blocked";
   const showContactColumns = selectedState === "reserved";
+  const showAvailableColumns = selectedState === "available";
   const columnCount =
-    2 + (showEmailColumn ? 4 : showReasonColumn ? 2 : showContactColumns ? 4 : 0);
+    2 +
+    (showEmailColumn ? 4 : showReasonColumn ? 2 : showContactColumns ? 4 : showAvailableColumns ? 4 : 0);
 
   return (
     <div className="min-h-screen px-6 py-10 sm:px-10">
@@ -388,6 +391,22 @@ export default function OccupancyDetailPage() {
                           </th>
                         </>
                       )}
+                      {showAvailableColumns && (
+                        <>
+                          <th className="px-4 py-3 font-medium" style={{ color: "var(--text-secondary)" }}>
+                            Floor
+                          </th>
+                          <th className="px-4 py-3 font-medium" style={{ color: "var(--text-secondary)" }}>
+                            Unit type
+                          </th>
+                          <th className="px-4 py-3 font-medium" style={{ color: "var(--text-secondary)" }}>
+                            Size
+                          </th>
+                          <th className="px-4 py-3 text-right font-medium" style={{ color: "var(--text-secondary)" }}>
+                            Price / month
+                          </th>
+                        </>
+                      )}
                     </tr>
                   </thead>
                   <tbody>
@@ -440,6 +459,22 @@ export default function OccupancyDetailPage() {
                             </td>
                             <td className="px-4 py-2" style={{ color: "var(--text-secondary)" }}>
                               {unit.reservedAt ? new Date(unit.reservedAt).toLocaleString() : "—"}
+                            </td>
+                          </>
+                        )}
+                        {showAvailableColumns && (
+                          <>
+                            <td className="px-4 py-2" style={{ color: "var(--text-secondary)" }}>
+                              {unit.floor ?? "—"}
+                            </td>
+                            <td className="px-4 py-2" style={{ color: "var(--text-secondary)" }}>
+                              {unit.unitTypeName ?? "—"}
+                            </td>
+                            <td className="px-4 py-2" style={{ color: "var(--text-secondary)" }}>
+                              {unit.sizeLabel ?? "—"}
+                            </td>
+                            <td className="px-4 py-2 text-right" style={{ color: "var(--text-secondary)" }}>
+                              {unit.price ? formatIdr(unit.price) : "—"}
                             </td>
                           </>
                         )}

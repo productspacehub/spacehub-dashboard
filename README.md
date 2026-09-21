@@ -52,6 +52,21 @@ Open [http://localhost:3000](http://localhost:3000) — you'll be redirected to
   whose columns adapt to the selected status: customer email + latest invoice
   for Occupied, blocked reason for Blocked, and customer name + phone + email
   for Reserved (so sales can follow up on payment before move-in).
+- The Available tab shows Floor, Unit type, Size, and Price/month — so sales
+  can quote a potential customer without opening Storeganise separately. Floor
+  and the raw size (`length`/`width`/`height`/`measure`) come straight off the
+  Unit object; Unit type name and price need a separate
+  `GET /v1/admin/unit-types` fetch (`fetchUnitTypes`), joined by `typeId`. Two
+  caveats worth knowing: (1) this endpoint's response shape wasn't in the docs
+  available while building this — only the field names used elsewhere in the
+  API were available as a guide (an `id` + Sites-style `title` map) — so it
+  fails soft (`.catch(() => [])`) rather than breaking the whole Available tab
+  if the shape turns out to be different in practice; (2) price prefers the
+  unit's own `defaultPrice`, falling back to the unit type's price only when
+  the unit doesn't have its own — matching Storeganise's own documented
+  behavior ("a move-in job that doesn't specify a unit price uses the type's
+  price"), but this fallback hasn't been checked against a real unit that
+  actually needs it.
 - Reserved units resolve owner contact info the same way as Occupied ones —
   `fetchRentalsWithOwner` is called for both `state=occupied` and
   `state=reserved` against `GET /v1/admin/unit-rentals?include=owner`. The

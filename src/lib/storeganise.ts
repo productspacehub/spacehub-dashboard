@@ -14,6 +14,29 @@ export type StoreganiseUnit = {
   name?: string;
   state: UnitState;
   blockedReason?: string;
+  typeId?: string;
+  floor?: string;
+  length?: number;
+  width?: number;
+  height?: number;
+  measure?: string | null;
+  // The monthly price charged when this unit is assigned to a new customer.
+  // Per Storeganise's own docs this can be 0/unset at the unit level, in which
+  // case the unit type's own price applies instead — see priceByUnitTypeId in
+  // getUnitsDetail below.
+  defaultPrice?: number;
+};
+
+// Docs available while building this didn't include a captured schema for
+// this endpoint (only a nav listing, no field-by-field response body) — id
+// and a Sites-style `title` map are a reasonable guess based on how every
+// other named entity in this API is shaped, but unconfirmed against a real
+// response. Falls back gracefully either way (see pickTitle usage below).
+export type StoreganiseUnitType = {
+  id: string;
+  title?: Record<string, string>;
+  name?: string;
+  price?: number;
 };
 
 export type StoreganiseUnitRental = {
@@ -132,6 +155,10 @@ export async function fetchSites(): Promise<StoreganiseSite[]> {
 
 export async function fetchUnits(): Promise<StoreganiseUnit[]> {
   return paginate<StoreganiseUnit>("/v1/admin/units");
+}
+
+export async function fetchUnitTypes(): Promise<StoreganiseUnitType[]> {
+  return paginate<StoreganiseUnitType>("/v1/admin/unit-types");
 }
 
 async function fetchRentalsWithOwner(state: "occupied" | "reserved"): Promise<StoreganiseUnitRental[]> {
@@ -314,7 +341,25 @@ export type UnitDetail = {
   ownerEmail?: string;
   reservedAt?: string;
   latestInvoice?: LatestInvoice;
+  floor?: string;
+  unitTypeName?: string;
+  sizeLabel?: string;
+  price?: number;
 };
+
+// e.g. "3 x 3 x 2.5 m" — omits height when the unit has no meaningful height
+// (common for storage units), and the measure unit when Storeganise doesn't
+// report one for this unit.
+function formatUnitSize(
+  length: number | undefined,
+  width: number | undefined,
+  height: number | undefined,
+  measure: string | null | undefined
+): string | undefined {
+  if (!length || !width) return undefined;
+  const dims = height ? `${length} x ${width} x ${height}` : `${length} x ${width}`;
+  return measure ? `${dims} ${measure}` : dims;
+}
 
 export type StatusBreakdown = {
   state: NonArchivedState;
@@ -333,15 +378,23 @@ export type UnitsDetail = {
 const NON_ARCHIVED_STATES: NonArchivedState[] = ["available", "occupied", "reserved", "blocked"];
 
 export async function getUnitsDetail(): Promise<UnitsDetail> {
-  const [sites, units, occupiedRentals, reservedRentals, recentInvoices] = await Promise.all([
+  const [sites, units, occupiedRentals, reservedRentals, recentInvoices, unitTypes] = await Promise.all([
     fetchSites(),
     fetchUnits(),
     fetchRentalsWithOwner("occupied"),
     fetchRentalsWithOwner("reserved"),
     fetchRecentInvoices(),
+    // Fails soft — Floor/Unit Type/Size/Price are a bonus for the sales team's
+    // Available tab, not core to occupancy reporting, so a broken/unconfirmed
+    // unit-types endpoint shouldn't take down the whole page.
+    fetchUnitTypes().catch(() => [] as StoreganiseUnitType[]),
   ]);
 
   const siteNameById = new Map(sites.map((s) => [s.id, pickTitle(s.title, s.code ?? s.id)]));
+  const unitTypeNameById = new Map(
+    unitTypes.map((t) => [t.id, pickTitle(t.title, t.name ?? t.id)])
+  );
+  const unitTypePriceById = new Map(unitTypes.map((t) => [t.id, t.price]));
 
   const ownerByUnitId = new Map<string, NonNullable<StoreganiseUnitRental["owner"]>>();
   for (const rental of [...occupiedRentals, ...reservedRentals]) {
@@ -389,6 +442,13 @@ export async function getUnitsDetail(): Promise<UnitsDetail> {
         unit.state === "occupied" && invoice
           ? { number: invoice.sid, state: invoice.state, paidAt: invoice.state === "paid" ? invoice.paid : undefined }
           : undefined,
+      floor: unit.floor,
+      unitTypeName: unit.typeId ? unitTypeNameById.get(unit.typeId) : undefined,
+      sizeLabel: formatUnitSize(unit.length, unit.width, unit.height, unit.measure),
+      // The unit's own price, falling back to its unit type's price — a unit
+      // with no override uses whatever the type charges (see StoreganiseUnit
+      // above).
+      price: unit.defaultPrice || (unit.typeId ? unitTypePriceById.get(unit.typeId) : undefined) || undefined,
     };
   });
 
