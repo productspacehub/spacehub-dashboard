@@ -217,6 +217,66 @@ Open [http://localhost:3000](http://localhost:3000) — you'll be redirected to
     colors, one stack) with Move Out as a separate bar below it — mirroring
     the team's existing weekly "Activation vs Churn" report, just re-colored
     per category and without that report's trendlines.
+- **Bookings** (`/bookings`, plus a summary card on the home page) — the
+  SpaceHub Centralized Booking System MVP, starting with the Shared Storage
+  module. Unlike the modules above, this isn't read from Storeganise at all:
+  it's this app's own Postgres-backed system of record (`src/lib/bookings.ts`,
+  schema in `src/lib/db.ts`'s `ensureSchema`), since shared storage/co-working/
+  meeting-room/studio bookings are a separate business line with no
+  Storeganise equivalent. The data model is intentionally module-agnostic
+  (a `module_type` column reserves `co_working`/`meeting_room`/`studio`
+  alongside the only value actually used today, `shared_storage`) so those
+  future modules don't need a schema rework.
+  - **Customer** (`customers` table) is shared across all modules by design —
+    one record reused everywhere, searchable by phone or name
+    (`GET /api/customers?q=`), with inline creation from the booking form.
+  - **Booking** (`bookings` table) is the core object: customer, package
+    type, dates, price, source (Online Inquiry / Walk-in), payment status,
+    and status. Status is one of Pending Payment → Confirmed → Active →
+    Completed, with Cancelled/No-Show exits — all manual/admin-driven in the
+    MVP, no automatic transitions based on dates. `updateBooking` enforces
+    two invariants directly rather than leaving them to the UI: flipping
+    payment to Paid while a booking is still Pending Payment auto-advances
+    it to Confirmed, and moving a booking to Active requires a Free
+    container to be selected in the same request.
+  - **Container** (`containers` table) is the physical shared-storage box.
+    Its Free/Assigned status is *derived*, not stored — computed as "Assigned
+    iff some booking with status = Active currently references it" (a
+    `LEFT JOIN` in `listContainers`/`getFreeContainers`). This keeps
+    container state always consistent with booking state with no second
+    place to update when a booking's status changes, and makes "prevent
+    assigning a container already Assigned elsewhere" a simple existence
+    check rather than a lock. `/bookings/containers` is the lookup screen —
+    search by Container ID, see which customer/booking currently holds it,
+    add new containers one at a time (no bulk import in the MVP; admins add
+    them as needed).
+  - **Rate/Package Config** (`rate_packages` table, `/bookings/rates`) is an
+    admin-editable price list per module (e.g. Daily/Weekly for
+    `shared_storage`) rather than hardcoded pricing, since real numbers
+    weren't finalized when this shipped. `PUT /api/rates` replaces the whole
+    list in one call (upsert what's present, delete what's dropped) — simple
+    enough for a handful of rows an admin edits together. It ships with no
+    rows; a booking's package can still be entered manually if the rate
+    table is empty. Selecting a package on `/bookings/new` pre-fills price
+    from this table, but price stays editable per-booking (manual
+    overrides/discounts, per the spec).
+  - **Addons** (Booking's "linked, zero or more" addons — free water refill,
+    TV, lockers for Co-working; equipment for Meeting Room/Studio) are
+    explicitly not used by Shared Storage in the MVP, so no `addons` table
+    or UI was built yet — deferred to whichever module actually needs it,
+    rather than shipping untested, unused schema now.
+  - Payment is manual in the MVP: admin generates a payment link outside the
+    system (e.g. via Xendit) and records it as free text
+    (`payment_reference`) against the booking; there's no auto-generation or
+    webhook reconciliation. Direct Xendit API integration is a deliberately
+    deferred Phase 2 enhancement, not required to launch.
+  - Out of scope for this MVP (see the spec's non-goals): customer
+    self-service booking (admin creates every booking), deposits/holds,
+    unit-level placement tracking (which physical unit a container sits in
+    stays a manual, offline staff process), reporting/analytics dashboards,
+    automated WhatsApp notifications, and role-based permissions (single
+    all-access admin role, reusing this app's existing `@spacehub.id` login —
+    no separate auth for this module).
 - `src/auth.ts` configures Auth.js (NextAuth v5) with a Google provider; its
   `signIn` callback rejects any email not ending in `@spacehub.id`, with one
   deliberate carve-out: exact emails listed in the `EXTRA_ALLOWED_EMAILS` env

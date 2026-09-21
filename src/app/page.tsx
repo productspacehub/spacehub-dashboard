@@ -11,6 +11,9 @@ import { MOVE_ACTIVITY_COLORS } from "@/components/MoveActivityChart";
 import type { OccupancySnapshotWithDelta } from "@/lib/snapshots";
 import type { CashinResponse } from "@/app/api/cashin/route";
 import type { MoveActivityResponse } from "@/app/api/move-activity/route";
+import type { BookingCounts, BookingListItem } from "@/lib/bookings";
+
+type BookingsResponse = { bookings: BookingListItem[]; counts: BookingCounts };
 
 // 4 hours — this dashboard's data doesn't change fast enough to justify
 // polling more often, and occupancy/cash-in/move-activity all do non-trivial
@@ -71,6 +74,7 @@ export default function Home() {
   const occupancy = useAutoRefresh<OccupancySnapshotWithDelta>("/api/occupancy");
   const cashin = useAutoRefresh<CashinResponse>("/api/cashin");
   const moveActivity = useAutoRefresh<MoveActivityResponse>("/api/move-activity");
+  const bookings = useAutoRefresh<BookingsResponse>("/api/bookings");
 
   return (
     <div className="min-h-screen px-6 py-10 sm:px-10">
@@ -89,6 +93,7 @@ export default function Home() {
                 occupancy.reload();
                 cashin.reload();
                 moveActivity.reload();
+                bookings.reload();
               }}
               className="text-sm hover:underline"
               style={{ color: "var(--text-secondary)" }}
@@ -259,6 +264,37 @@ export default function Home() {
                 </div>
                 <p className="text-xs" style={{ color: "var(--text-muted)" }}>
                   Bulan berjalan · {moveActivity.data.bySite.length} site
+                </p>
+              </>
+            )}
+          </ModuleCard>
+
+          <ModuleCard
+            label="Bookings"
+            dotColor="var(--status-warning)"
+            href="/bookings"
+            loading={bookings.loading && !!bookings.data}
+          >
+            {bookings.error && (
+              <p className="text-xs" style={{ color: "var(--status-critical)" }}>
+                {bookings.error}
+              </p>
+            )}
+            {bookings.loading && !bookings.data && (
+              <p className="text-sm" style={{ color: "var(--text-secondary)" }}>
+                Loading…
+              </p>
+            )}
+            {bookings.data && (
+              <>
+                <div className="flex flex-col items-start gap-1">
+                  <p className="text-3xl font-bold" style={{ color: "var(--text-primary)" }}>
+                    {bookings.data.counts.Active} aktif
+                  </p>
+                </div>
+                <p className="text-xs" style={{ color: "var(--text-muted)" }}>
+                  {bookings.data.counts["Pending Payment"]} menunggu pembayaran ·{" "}
+                  {bookings.data.counts.Confirmed} confirmed
                 </p>
               </>
             )}
