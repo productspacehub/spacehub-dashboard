@@ -4,7 +4,13 @@ let pool: Pool | undefined;
 
 function getPool(): Pool {
   if (!pool) {
-    const connectionString = process.env.DATABASE_URL;
+    // BOOKING_STAGING_DATABASE_URL is set Preview-only (a second Neon database
+    // connected to this project for staging the Bookings module) — preferring
+    // it when present routes Preview deployments to that separate database
+    // without touching the existing DATABASE_URL, which stays Production-and-
+    // Preview-scoped from the original Neon integration and would otherwise
+    // conflict with a Preview-only override of the same name.
+    const connectionString = process.env.BOOKING_STAGING_DATABASE_URL ?? process.env.DATABASE_URL;
     if (!connectionString) {
       throw new Error("DATABASE_URL is not set. Connect a Postgres database to this project on Vercel.");
     }

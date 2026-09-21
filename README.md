@@ -309,24 +309,27 @@ the login otherwise.
 
 ### Staging the Bookings module separately from Production
 
-The Bookings module (`/bookings`) writes to the same `DATABASE_URL` as every
+The Bookings module (`/bookings`) uses the same Postgres connection as every
 other module here, so testing it against the live Production database would
-mix test bookings into real occupancy/cash-in data. Until a branch adding to
-or changing this module is merged to the main branch, keep it out of
-Production:
+mix test bookings into real occupancy/cash-in data. This project connects a
+second Neon database, `spacehub-booking-staging`, for that:
 
-1. Don't merge the branch into `main` yet — Vercel's Git integration deploys
-   every other branch as a **Preview Deployment**, with its own URL, separate
-   from Production.
-2. In the Vercel project's **Settings > Environment Variables**, add a
-   `DATABASE_URL` scoped to the **Preview** environment only (not
-   Production), pointing at a separate Postgres database (e.g. a second free
-   Neon database). Preview deployments then run `ensureSchema()` against
-   that database instead of Production's — test bookings, containers, and
-   rate-table edits never touch real data.
+1. Don't merge a Bookings-module branch into `main` until it's verified —
+   Vercel's Git integration deploys every other branch as a **Preview
+   Deployment**, with its own URL, separate from Production.
+2. The `spacehub-booking-staging` Neon database is connected to this project
+   with the custom env var prefix `BOOKING_STAGING`, scoped to the
+   **Preview** environment only — so it generates `BOOKING_STAGING_DATABASE_URL`
+   (among others) without touching the original `DATABASE_URL`, which stays
+   scoped to Production and Preview from the original `spacehub-db`
+   connection. `getPool()` in `src/lib/db.ts` prefers
+   `BOOKING_STAGING_DATABASE_URL` when it's set, falling back to
+   `DATABASE_URL` otherwise — so Preview deployments automatically use the
+   staging database, Production is untouched, and no environment-variable
+   name ever collides.
 3. Once verified on the preview URL, merge to `main` as usual — Production
-   keeps using its own `DATABASE_URL`, untouched by anything done on the
-   preview database.
+   only ever sees `DATABASE_URL`, so nothing about the staging database
+   affects it.
 
 Historical comparisons only go back as far as the cron has been running —
 "vs yesterday" won't show a value until the day after this feature is live,
