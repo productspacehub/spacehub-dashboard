@@ -68,10 +68,16 @@ export type StoreganiseInvoice = {
   paid?: string;
 };
 
+export type StoreganisePayment = {
+  date?: string;
+  created?: string;
+};
+
 export type StoreganiseInvoiceDetail = StoreganiseInvoice & {
   total?: number;
   siteId?: string;
   owner?: { id: string; name?: string; email?: string };
+  payments?: StoreganisePayment[];
 };
 
 export type SiteOccupancy = {
@@ -193,7 +199,7 @@ export async function fetchRecentlyPaidInvoices(): Promise<StoreganiseInvoice[]>
 
 export async function fetchInvoiceById(invoiceId: string): Promise<StoreganiseInvoiceDetail> {
   const url = new URL(`${BASE_URL}/v1/admin/invoices/${invoiceId}`);
-  url.searchParams.set("include", "owner");
+  url.searchParams.set("include", "owner,payments");
 
   const res = await fetch(url, { headers: authHeaders(), cache: "no-store" });
   if (!res.ok) {
