@@ -18,6 +18,17 @@ function formatIdr(value: number): string {
   return new Intl.NumberFormat("id-ID", { style: "currency", currency: "IDR", maximumFractionDigits: 0 }).format(value);
 }
 
+function daysOverdue(endDate: string): number {
+  const end = new Date(`${endDate}T00:00:00`);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  return Math.round((today.getTime() - end.getTime()) / (24 * 60 * 60 * 1000));
+}
+
+function formatDateLabel(dateStr: string): string {
+  return new Date(`${dateStr}T00:00:00`).toLocaleDateString("id-ID", { day: "numeric", month: "short", year: "numeric" });
+}
+
 export default function BookingDetailPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
@@ -158,6 +169,15 @@ export default function BookingDetailPage() {
                 {booking.createdBy ? ` oleh ${booking.createdBy}` : ""}
               </p>
             </div>
+
+            {booking.isOverdue && booking.endDate && (
+              <div
+                className="mb-6 rounded-lg border px-4 py-3 text-sm"
+                style={{ borderColor: "var(--status-critical)", color: "var(--status-critical)", background: "var(--surface-1)" }}
+              >
+                Booking ini overdue {daysOverdue(booking.endDate)} hari — item belum diambil sejak tanggal selesai ({formatDateLabel(booking.endDate)}).
+              </div>
+            )}
 
             <form onSubmit={handleSave} className="flex flex-col gap-6">
               <section className="rounded-2xl border p-6" style={{ background: "var(--surface-1)", borderColor: "var(--gridline)" }}>

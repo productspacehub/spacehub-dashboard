@@ -39,6 +39,17 @@ function StatusBadge({ status }: { status: BookingStatus }) {
   );
 }
 
+function OverdueBadge() {
+  return (
+    <span
+      className="inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold whitespace-nowrap"
+      style={{ background: "var(--status-critical)", color: "var(--background)" }}
+    >
+      Overdue
+    </span>
+  );
+}
+
 export default function BookingsPage() {
   const { data: session } = useSession();
   const [data, setData] = useState<BookingsResponse | null>(null);
@@ -221,7 +232,12 @@ export default function BookingsPage() {
                           {b.paymentStatus}
                         </span>
                       </td>
-                      <td className="px-4 py-3"><StatusBadge status={b.status} /></td>
+                      <td className="px-4 py-3">
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <StatusBadge status={b.status} />
+                          {b.isOverdue && <OverdueBadge />}
+                        </div>
+                      </td>
                       <td className="px-4 py-3" style={{ color: "var(--text-secondary)" }}>{b.containerLabel ?? "–"}</td>
                     </tr>
                   ))}

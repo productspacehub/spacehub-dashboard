@@ -1,4 +1,5 @@
 import { ensureSchema, query } from "./db";
+import { jakartaToday } from "./snapshots";
 import { ACTIVE_MODULE_TYPE, type BookingSource, type BookingStatus, type PaymentStatus } from "./bookingConstants";
 
 export { ACTIVE_MODULE_TYPE, BOOKING_STATUSES, PAYMENT_STATUSES, BOOKING_SOURCES } from "./bookingConstants";
@@ -47,6 +48,11 @@ export type BookingListItem = {
   paymentStatus: PaymentStatus;
   containerLabel: string | null;
   createdAt: string;
+  // Active past its end date (Jakarta calendar day) — derived at read time,
+  // not stored, same reasoning as Container's Free/Assigned status: it can
+  // never drift out of sync with the booking row, and "today" naturally
+  // advances on its own without any scheduled job to keep it current.
+  isOverdue: boolean;
 };
 
 export type BookingDetail = BookingListItem & {
@@ -225,7 +231,7 @@ type ListRow = {
   created_at: string;
 };
 
-function mapListRow(r: ListRow): BookingListItem {
+function mapListRow(r: ListRow, today: string): BookingListItem {
   return {
     id: r.id,
     customerName: r.customer_name,
@@ -238,6 +244,7 @@ function mapListRow(r: ListRow): BookingListItem {
     paymentStatus: r.payment_status,
     containerLabel: r.container_label,
     createdAt: r.created_at,
+    isOverdue: r.status === "Active" && r.end_date !== null && r.end_date < today,
   };
 }
 
@@ -267,7 +274,8 @@ export async function listBookings(filters: {
   const counts = emptyCounts();
   for (const row of countRows) counts[row.status] = Number(row.count);
 
-  return { bookings: rows.map(mapListRow), counts };
+  const today = jakartaToday();
+  return { bookings: rows.map((r) => mapListRow(r, today)), counts };
 }
 
 export async function getBooking(id: number): Promise<BookingDetail | null> {
@@ -300,7 +308,7 @@ export async function getBooking(id: number): Promise<BookingDetail | null> {
   if (rows.length === 0) return null;
   const r = rows[0];
   return {
-    ...mapListRow(r),
+    ...mapListRow(r, jakartaToday()),
     customer: { id: r.cu_id, name: r.customer_name, phone: r.customer_phone, email: r.cu_email, idNumber: r.cu_id_number, notes: r.cu_notes },
     containerId: r.container_id,
     paymentReference: r.payment_reference,
