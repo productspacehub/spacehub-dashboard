@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import Image from "next/image";
 import Link from "next/link";
 import { signOut, useSession } from "next-auth/react";
@@ -20,6 +20,7 @@ function formatIdr(value: number): string {
 
 export default function BookingDetailPage() {
   const { id } = useParams<{ id: string }>();
+  const router = useRouter();
   const { data: session } = useSession();
 
   const [booking, setBooking] = useState<BookingDetail | null>(null);
@@ -27,7 +28,6 @@ export default function BookingDetailPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
-  const [savedAt, setSavedAt] = useState<number | null>(null);
 
   const [form, setForm] = useState<{
     customer: { name: string; phone: string; email: string; idNumber: string; notes: string };
@@ -108,8 +108,7 @@ export default function BookingDetailPage() {
       });
       const body = (await res.json()) as { booking?: BookingDetail; error?: string };
       if (!res.ok) throw new Error(body.error ?? "Gagal menyimpan");
-      await load();
-      setSavedAt(Date.now());
+      router.push("/bookings");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Gagal menyimpan");
     } finally {
@@ -251,14 +250,9 @@ export default function BookingDetailPage() {
                 </p>
               </section>
 
-              <div className="flex items-center gap-4">
-                <button type="submit" disabled={saving} className="self-start rounded-full px-5 py-2.5 text-sm font-medium disabled:opacity-50" style={{ background: "var(--series-1)", color: "var(--background)" }}>
-                  {saving ? "Menyimpan…" : "Simpan perubahan"}
-                </button>
-                {savedAt && !saving && (
-                  <span className="text-xs" style={{ color: "var(--status-good)" }}>Tersimpan.</span>
-                )}
-              </div>
+              <button type="submit" disabled={saving} className="self-start rounded-full px-5 py-2.5 text-sm font-medium disabled:opacity-50" style={{ background: "var(--series-1)", color: "var(--background)" }}>
+                {saving ? "Menyimpan…" : "Simpan perubahan"}
+              </button>
             </form>
           </>
         )}
