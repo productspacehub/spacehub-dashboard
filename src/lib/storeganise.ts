@@ -202,6 +202,27 @@ export async function fetchInvoiceById(invoiceId: string): Promise<StoreganiseIn
   return res.json();
 }
 
+export type StoreganiseInvoiceAction = {
+  id: string;
+  type: string;
+  date: string;
+};
+
+// invoice.paid (and payments[].date/created) were found to be date-only with no
+// time-of-day for manually-entered payments — always midnight UTC, regardless of when
+// the payment was actually recorded. The invoice's action history has full-precision
+// timestamps instead (confirmed against a real "markInvoicePaid" action, milliseconds
+// included, matching the exact time shown in Storeganise's own dashboard timeline).
+export async function fetchInvoiceActions(invoiceId: string): Promise<StoreganiseInvoiceAction[]> {
+  const url = new URL(`${BASE_URL}/v1/admin/invoices/${invoiceId}/actions`);
+
+  const res = await fetch(url, { headers: authHeaders(), cache: "no-store" });
+  if (!res.ok) {
+    throw new Error(`Storeganise API error ${res.status} fetching actions for invoice ${invoiceId}: ${await res.text()}`);
+  }
+  return res.json();
+}
+
 export type StoreganiseUser = {
   id: string;
   name?: string;
