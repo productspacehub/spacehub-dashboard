@@ -1,18 +1,22 @@
-import { fetchInvoiceById, StoreganiseInvoiceDetail } from "@/lib/storeganise";
+import { fetchInvoiceById, fetchInvoiceActions } from "@/lib/storeganise";
 import { sendSlackMessage } from "@/lib/slack";
 import { ensureSchema, isInvoiceNotified, recordInvoiceNotified } from "@/lib/db";
 
-// invoice.paid isn't reliable on its own — observed to sometimes hold a stale/unrelated
-// date (e.g. midnight on the invoice's billing-period start) instead of the actual
-// payment moment, at least for invoices paid via a manual admin action rather than the
-// automatic gateway flow. The invoice's own payment records are the more trustworthy
-// source of "when did this actually get paid," so prefer the most recent one's date.
-function latestPaidTimestamp(invoice: StoreganiseInvoiceDetail): string | undefined {
-  const paymentDates = (invoice.payments ?? [])
-    .map((p) => p.date ?? p.created)
-    .filter((d): d is string => Boolean(d))
-    .sort();
-  return paymentDates[paymentDates.length - 1] ?? invoice.paid;
+// invoice.paid (and payments[].date/created) were found to be date-only with no
+// time-of-day for manually-entered payments — always midnight UTC regardless of the
+// actual payment time. The invoice's action history has full-precision timestamps
+// instead, confirmed against a real "markInvoicePaid" action matching the exact time
+// shown in Storeganise's own dashboard timeline. Falls back to invoice.paid if the
+// actions call fails or no such action is found, rather than failing the notification.
+async function findPaidAtTimestamp(invoiceId: string, fallback: string | undefined): Promise<string | undefined> {
+  try {
+    const actions = await fetchInvoiceActions(invoiceId);
+    const markedPaid = actions.find((a) => a.type === "markInvoicePaid");
+    if (markedPaid) return markedPaid.date;
+  } catch {
+    // fall through to the less precise fallback below
+  }
+  return fallback;
 }
 
 function formatPaidAt(paidIso: string): string {
@@ -39,7 +43,7 @@ export async function notifyIfNewlyPaid(invoiceId: string): Promise<boolean> {
 
   const ownerName = invoice.owner?.name ?? "Unknown tenant";
   const amount = invoice.total !== undefined ? `Rp${invoice.total.toLocaleString("id-ID")}` : "-";
-  const paidTimestamp = latestPaidTimestamp(invoice);
+  const paidTimestamp = await findPaidAtTimestamp(invoiceId, invoice.paid);
   const paidAt = paidTimestamp ? formatPaidAt(paidTimestamp) : "unknown time";
 
   await sendSlackMessage(
