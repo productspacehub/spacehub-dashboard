@@ -159,12 +159,15 @@ async function createSchema(): Promise<void> {
       CREATE INDEX IF NOT EXISTS bookings_status_idx ON bookings (status);
       CREATE INDEX IF NOT EXISTS bookings_container_idx ON bookings (container_id);
       CREATE INDEX IF NOT EXISTS bookings_customer_idx ON bookings (customer_id);
-      CREATE INDEX IF NOT EXISTS bookings_resource_idx ON bookings (resource_id);
       -- Safety net for a bookings table that already existed before these
       -- columns were added (same reasoning as booking_addons.quantity below).
+      -- Must run before the resource_id index below — on a pre-existing
+      -- table, CREATE TABLE IF NOT EXISTS is a no-op, so the column (and
+      -- therefore anything indexing it) doesn't exist until this ALTER runs.
       ALTER TABLE bookings ADD COLUMN IF NOT EXISTS start_time TIME;
       ALTER TABLE bookings ADD COLUMN IF NOT EXISTS end_time TIME;
       ALTER TABLE bookings ADD COLUMN IF NOT EXISTS resource_id INTEGER REFERENCES resources(id);
+      CREATE INDEX IF NOT EXISTS bookings_resource_idx ON bookings (resource_id);
 
       -- Selected addons per booking, snapshotted (name + price at the time of
       -- booking) rather than a foreign key to addons — so renaming, repricing,
