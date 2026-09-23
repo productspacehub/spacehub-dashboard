@@ -57,6 +57,11 @@ export type BookingListItem = {
   startDate: string;
   endDate: string | null;
   price: number;
+  // Sum of price * quantity across the booking's selected addons — computed
+  // via SQL aggregate at read time, not stored, so it can't drift out of
+  // sync with booking_addons. `price` stays the base package price alone;
+  // price + addonsTotal is what the UI shows as "Total".
+  addonsTotal: number;
   status: BookingStatus;
   paymentStatus: PaymentStatus;
   containerLabel: string | null;
@@ -299,10 +304,13 @@ const LIST_SELECT = `
          to_char(b.start_date, 'YYYY-MM-DD') AS start_date,
          to_char(b.end_date, 'YYYY-MM-DD') AS end_date,
          b.price, b.status, b.payment_status, co.label AS container_label,
-         b.created_at
+         b.created_at, COALESCE(addon_totals.total, 0) AS addons_total
   FROM bookings b
   JOIN customers cu ON cu.id = b.customer_id
   LEFT JOIN containers co ON co.id = b.container_id
+  LEFT JOIN (
+    SELECT booking_id, SUM(price * quantity) AS total FROM booking_addons GROUP BY booking_id
+  ) addon_totals ON addon_totals.booking_id = b.id
 `;
 
 type ListRow = {
@@ -318,6 +326,7 @@ type ListRow = {
   payment_status: PaymentStatus;
   container_label: string | null;
   created_at: string;
+  addons_total: string;
 };
 
 function mapListRow(r: ListRow, today: string): BookingListItem {
@@ -330,6 +339,7 @@ function mapListRow(r: ListRow, today: string): BookingListItem {
     startDate: r.start_date,
     endDate: r.end_date,
     price: Number(r.price),
+    addonsTotal: Number(r.addons_total),
     status: r.status,
     paymentStatus: r.payment_status,
     containerLabel: r.container_label,
@@ -401,8 +411,10 @@ export async function getBooking(id: number): Promise<BookingDetail | null> {
   if (rows.length === 0) return null;
   const r = rows[0];
   const addons = await getBookingAddons(id);
+  const addonsTotal = addons.reduce((sum, a) => sum + a.price * a.quantity, 0);
   return {
     ...mapListRow(r, jakartaToday()),
+    addonsTotal,
     customer: { id: r.cu_id, name: r.customer_name, phone: r.customer_phone, email: r.cu_email, idNumber: r.cu_id_number, notes: r.cu_notes },
     containerId: r.container_id,
     paymentReference: r.payment_reference,

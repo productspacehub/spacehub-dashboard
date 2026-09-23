@@ -205,7 +205,7 @@ export default function BookingsPage() {
                     <th className="px-4 py-3 font-medium" style={{ color: "var(--text-secondary)" }}>Package</th>
                     <th className="px-4 py-3 font-medium" style={{ color: "var(--text-secondary)" }}>Mulai</th>
                     <th className="px-4 py-3 font-medium" style={{ color: "var(--text-secondary)" }}>Selesai</th>
-                    <th className="px-4 py-3 text-right font-medium" style={{ color: "var(--text-secondary)" }}>Harga</th>
+                    <th className="px-4 py-3 text-right font-medium" style={{ color: "var(--text-secondary)" }}>Total</th>
                     <th className="px-4 py-3 font-medium" style={{ color: "var(--text-secondary)" }}>Pembayaran</th>
                     <th className="px-4 py-3 font-medium" style={{ color: "var(--text-secondary)" }}>Status</th>
                     <th className="px-4 py-3 font-medium" style={{ color: "var(--text-secondary)" }}>Container</th>
@@ -230,7 +230,7 @@ export default function BookingsPage() {
                       <td className="px-4 py-3" style={{ color: "var(--text-secondary)" }}>{b.packageType}</td>
                       <td className="px-4 py-3" style={{ color: "var(--text-secondary)" }}>{formatDate(b.startDate)}</td>
                       <td className="px-4 py-3" style={{ color: "var(--text-secondary)" }}>{formatDate(b.endDate)}</td>
-                      <td className="px-4 py-3 text-right font-medium" style={{ color: "var(--text-primary)" }}>{formatIdr(b.price)}</td>
+                      <td className="px-4 py-3 text-right font-medium" style={{ color: "var(--text-primary)" }}>{formatIdr(b.price + b.addonsTotal)}</td>
                       <td className="px-4 py-3">
                         <span
                           className="text-xs font-medium"
