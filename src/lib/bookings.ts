@@ -317,6 +317,13 @@ export async function createResource(moduleType: ModuleType, name: string): Prom
 // Payment — the slot is provisionally held from the moment it's booked, not
 // just once paid, so two admins can't both promise the same slot to
 // different customers while one payment is still pending).
+// "HH:MM" -> hours, for enforcing MODULE_CONFIG's minBookingHours.
+function hoursBetween(startTime: string, endTime: string): number {
+  const [sh, sm] = startTime.split(":").map(Number);
+  const [eh, em] = endTime.split(":").map(Number);
+  return (eh * 60 + em - (sh * 60 + sm)) / 60;
+}
+
 export async function checkResourceConflict(
   resourceId: number,
   date: string,
@@ -531,6 +538,9 @@ export async function createBooking(input: CreateBookingInput): Promise<BookingD
     if (input.startTime >= input.endTime) {
       throw new Error("Jam selesai harus setelah jam mulai");
     }
+    if (config.minBookingHours && hoursBetween(input.startTime, input.endTime) < config.minBookingHours) {
+      throw new Error(`Booking minimal ${config.minBookingHours} jam`);
+    }
     const conflict = await checkResourceConflict(input.resourceId, input.startDate, input.startTime, input.endTime);
     if (conflict) {
       throw new Error("Ruang ini sudah dibooking pada jam tersebut — pilih jam atau ruang lain");
@@ -649,6 +659,9 @@ export async function updateBooking(id: number, patch: UpdateBookingInput): Prom
     }
     if (nextStartTime >= nextEndTime) {
       throw new Error("Jam selesai harus setelah jam mulai");
+    }
+    if (config.minBookingHours && hoursBetween(nextStartTime, nextEndTime) < config.minBookingHours) {
+      throw new Error(`Booking minimal ${config.minBookingHours} jam`);
     }
     const scheduleChanged =
       nextResourceId !== existing.resourceId ||

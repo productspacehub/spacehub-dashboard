@@ -6,7 +6,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { signOut, useSession } from "next-auth/react";
 import type { Addon, BookingDetail, Customer, ModuleType, RatePackage, ResourceRow } from "@/lib/bookings";
-import { BOOKING_SOURCES, type BookingSource } from "@/lib/bookingConstants";
+import { BOOKING_SOURCES, MODULE_CONFIG, type BookingSource } from "@/lib/bookingConstants";
 
 const inputStyle = {
   background: "var(--surface-1)",
@@ -39,6 +39,7 @@ export function NewBookingForm({
 }) {
   const { data: session } = useSession();
   const router = useRouter();
+  const minBookingHours = MODULE_CONFIG[moduleType].minBookingHours;
 
   const [rates, setRates] = useState<RatePackage[]>([]);
   const [addons, setAddons] = useState<Addon[]>([]);
@@ -142,6 +143,15 @@ export function NewBookingForm({
     if (usesTimeSlots && startTime >= endTime) {
       setError("Jam selesai harus setelah jam mulai");
       return;
+    }
+    if (usesTimeSlots && minBookingHours && startTime && endTime) {
+      const [sh, sm] = startTime.split(":").map(Number);
+      const [eh, em] = endTime.split(":").map(Number);
+      const hours = (eh * 60 + em - (sh * 60 + sm)) / 60;
+      if (hours < minBookingHours) {
+        setError(`Booking minimal ${minBookingHours} jam`);
+        return;
+      }
     }
 
     setSubmitting(true);
@@ -327,7 +337,9 @@ export function NewBookingForm({
                   <label className="flex flex-col gap-1 text-xs" style={{ color: "var(--text-secondary)" }}>
                     Jam selesai *
                     <input type="time" value={endTime} onChange={(e) => setEndTime(e.target.value)} className="rounded-lg border px-3 py-2 text-sm" style={inputStyle} />
-                    <span style={{ color: "var(--text-muted)" }}>Minimal booking 3 jam (belum ditegakkan otomatis oleh sistem).</span>
+                    {minBookingHours && (
+                      <span style={{ color: "var(--text-muted)" }}>Minimal booking {minBookingHours} jam.</span>
+                    )}
                   </label>
                 </>
               ) : (

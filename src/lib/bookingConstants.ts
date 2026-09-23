@@ -28,14 +28,18 @@ export const MODULE_LABELS: Record<ModuleType, string> = {
 //   they behave like shared_storage for the payment->status transition
 //   (stop at Confirmed — there's no "the meeting is happening now" trigger
 //   worth automating), but need usesTimeSlots for the extra fields/checks.
+// minBookingHours is a business decision, not a technical constraint — kept
+// here as plain config (rather than hardcoded in the validation logic) so it
+// can be tuned per module as the business monitors real usage, with no code
+// change beyond this number. null means no minimum is enforced.
 export const MODULE_CONFIG: Record<
   ModuleType,
-  { requiresContainer: boolean; autoActivateOnPayment: boolean; usesTimeSlots: boolean }
+  { requiresContainer: boolean; autoActivateOnPayment: boolean; usesTimeSlots: boolean; minBookingHours: number | null }
 > = {
-  shared_storage: { requiresContainer: true, autoActivateOnPayment: false, usesTimeSlots: false },
-  co_working: { requiresContainer: false, autoActivateOnPayment: true, usesTimeSlots: false },
-  meeting_room: { requiresContainer: false, autoActivateOnPayment: false, usesTimeSlots: true },
-  studio: { requiresContainer: false, autoActivateOnPayment: false, usesTimeSlots: true },
+  shared_storage: { requiresContainer: true, autoActivateOnPayment: false, usesTimeSlots: false, minBookingHours: null },
+  co_working: { requiresContainer: false, autoActivateOnPayment: true, usesTimeSlots: false, minBookingHours: null },
+  meeting_room: { requiresContainer: false, autoActivateOnPayment: false, usesTimeSlots: true, minBookingHours: 3 },
+  studio: { requiresContainer: false, autoActivateOnPayment: false, usesTimeSlots: true, minBookingHours: 3 },
 };
 
 export const BOOKING_STATUSES = [
