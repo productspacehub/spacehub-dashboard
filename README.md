@@ -217,16 +217,26 @@ Open [http://localhost:3000](http://localhost:3000) — you'll be redirected to
     colors, one stack) with Move Out as a separate bar below it — mirroring
     the team's existing weekly "Activation vs Churn" report, just re-colored
     per category and without that report's trendlines.
-- **Bookings** (`/bookings`, plus a summary card on the home page) — the
-  SpaceHub Centralized Booking System MVP, starting with the Shared Storage
-  module. Unlike the modules above, this isn't read from Storeganise at all:
-  it's this app's own Postgres-backed system of record (`src/lib/bookings.ts`,
-  schema in `src/lib/db.ts`'s `ensureSchema`), since shared storage/co-working/
+- **Bookings** (`/bookings`) — the SpaceHub Centralized Booking System MVP.
+  Deliberately kept separate from the dashboard above, including off the
+  home page: it's a different tool for a different purpose (admin-driven
+  booking management), not one more occupancy/cash-in-style metric — reached
+  by going to `/bookings` directly, not linked from `/`. Unlike the modules
+  above, it isn't read from Storeganise at all: it's this app's own
+  Postgres-backed system of record (`src/lib/bookings.ts`, schema in
+  `src/lib/db.ts`'s `ensureSchema`), since shared storage/co-working/
   meeting-room/studio bookings are a separate business line with no
-  Storeganise equivalent. The data model is intentionally module-agnostic
-  (a `module_type` column reserves `co_working`/`meeting_room`/`studio`
-  alongside the only value actually used today, `shared_storage`) so those
-  future modules don't need a schema rework.
+  Storeganise equivalent. The data model is intentionally module-agnostic (a
+  `module_type` column on the shared tables — `shared_storage` and
+  `co_working` are active; `meeting_room`/`studio` are reserved) so each new
+  module only adds config (`MODULE_CONFIG` in `src/lib/bookingConstants.ts`),
+  never a schema rework. `/bookings` (Shared Storage) and
+  `/bookings/coworking` (Co-working) are separate list/create pages — their
+  meaningful fields differ too much to share one table (Container vs.
+  Addons) — switchable via the tab row at the top of either
+  (`ModuleTabs`), but `/bookings/[id]` is one shared, adaptive detail page:
+  it renders a Container section or an Addons section depending on the
+  loaded booking's own `moduleType`.
   - **Customer** (`customers` table) is shared across all modules by design —
     one record reused everywhere, searchable by phone or name
     (`GET /api/customers?q=`), with inline creation from the booking form.
@@ -235,14 +245,26 @@ Open [http://localhost:3000](http://localhost:3000) — you'll be redirected to
     and status. Status is one of Pending Payment → Confirmed → Active →
     Completed, with Cancelled/No-Show exits — all manual/admin-driven in the
     MVP, no automatic transitions based on dates. `updateBooking` enforces
-    two invariants directly rather than leaving them to the UI: flipping
-    payment to Paid while a booking is still Pending Payment auto-advances
-    it to Confirmed, and moving a booking to Active requires a Free
-    container to be selected in the same request.
-  - **Container** (`containers` table) is the physical shared-storage box.
-    Its Free/Assigned status is *derived*, not stored — computed as "Assigned
-    iff some booking with status = Active currently references it" (a
-    `LEFT JOIN` in `listContainers`/`getFreeContainers`). This keeps
+    invariants directly rather than leaving them to the UI, and the exact
+    behavior is module-config-driven (`MODULE_CONFIG`): flipping payment to
+    Paid while a booking is still Pending Payment auto-advances it —  for
+    Shared Storage, to Confirmed (`requiresContainer: true`, still needs a
+    container assigned at drop-off); for Co-working, straight to Active
+    (`autoActivateOnPayment: true` — availability is a headcount check, so
+    there's nothing else to wait for). Moving to Active for a module with
+    `requiresContainer` additionally requires a Free container in the same
+    request.
+  - A booking still Active past its own end date is flagged `isOverdue`
+    (computed at read time from `status`/`end_date` vs. today's Jakarta
+    calendar day, not stored — same reasoning as Container status below: it
+    can never drift out of sync, and "today" advances on its own with no
+    scheduled job needed). Shown as a red "Overdue" badge on the list and a
+    warning banner with days-overdue on the detail page.
+  - **Container** (`containers` table) is the physical shared-storage box —
+    used only by modules with `requiresContainer: true` (Shared Storage
+    today). Its Free/Assigned status is *derived*, not stored — computed as
+    "Assigned iff some booking with status = Active currently references
+    it" (a `LEFT JOIN` in `listContainers`/`getFreeContainers`). This keeps
     container state always consistent with booking state with no second
     place to update when a booking's status changes, and makes "prevent
     assigning a container already Assigned elsewhere" a simple existence
@@ -250,26 +272,37 @@ Open [http://localhost:3000](http://localhost:3000) — you'll be redirected to
     search by Container ID, see which customer/booking currently holds it,
     add new containers one at a time (no bulk import in the MVP; admins add
     them as needed).
-  - **Rate/Package Config** (`rate_packages` table, `/bookings/rates`) is an
-    admin-editable price list per module (e.g. Daily/Weekly for
-    `shared_storage`) rather than hardcoded pricing, since real numbers
-    weren't finalized when this shipped. `PUT /api/rates` replaces the whole
-    list in one call (upsert what's present, delete what's dropped) — simple
-    enough for a handful of rows an admin edits together. It ships with no
-    rows; a booking's package can still be entered manually if the rate
-    table is empty. Selecting a package on `/bookings/new` pre-fills price
-    from this table, but price stays editable per-booking (manual
-    overrides/discounts, per the spec).
-  - **Addons** (Booking's "linked, zero or more" addons — free water refill,
-    TV, lockers for Co-working; equipment for Meeting Room/Studio) are
-    explicitly not used by Shared Storage in the MVP, so no `addons` table
-    or UI was built yet — deferred to whichever module actually needs it,
-    rather than shipping untested, unused schema now.
+  - **Rate/Package Config** (`rate_packages` table) is an admin-editable
+    price list per module (e.g. Daily/Weekly for Shared Storage; Hot Desk
+    Daily/Weekly/Monthly for Co-working) rather than hardcoded pricing,
+    since real numbers weren't finalized when this shipped. `PUT /api/rates`
+    (`?module=`) replaces the whole list for that module in one call (upsert
+    what's present, delete what's dropped) — simple enough for a handful of
+    rows an admin edits together, at `/bookings/rates` and
+    `/bookings/coworking/rates`. Ships with no rows; a booking's package can
+    still be entered manually if the rate table is empty. Selecting a
+    package on a booking's create form pre-fills price from this table, but
+    price stays editable per-booking (manual overrides/discounts, per the
+    spec).
+  - **Addons** (`addons` table, admin-editable at `/bookings/coworking/addons`
+    — Co-working's free water refill/TV/lockers) follow the same "ships
+    empty, replace the whole list" pattern as rate packages
+    (`PUT /api/addons?module=`). A booking's selected addons
+    (`booking_addons` table) are stored as a name+price *snapshot* at
+    selection time rather than a foreign key — renaming, repricing, or
+    removing an addon from the admin menu later never changes what an
+    already-made booking shows. Not used by Shared Storage — no addon
+    selection UI there, matching the spec's non-goals for that module.
   - Payment is manual in the MVP: admin generates a payment link outside the
     system (e.g. via Xendit) and records it as free text
     (`payment_reference`) against the booking; there's no auto-generation or
     webhook reconciliation. Direct Xendit API integration is a deliberately
     deferred Phase 2 enhancement, not required to launch.
+  - Co-working's "headcount check" availability (§7.1) is informational
+    only in the MVP — `getActiveHeadcountToday`/`GET /api/bookings/headcount`
+    counts today's Active bookings for a module (shown on
+    `/bookings/coworking`) but never blocks creating another booking, even
+    past that number. No capacity limit is configured or enforced.
   - Out of scope for this MVP (see the spec's non-goals): customer
     self-service booking (admin creates every booking), deposits/holds,
     unit-level placement tracking (which physical unit a container sits in

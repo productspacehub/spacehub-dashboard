@@ -51,9 +51,10 @@ function OverdueBadge() {
   );
 }
 
-export default function BookingsPage() {
+export default function CoworkingBookingsPage() {
   const { data: session } = useSession();
   const [data, setData] = useState<BookingsResponse | null>(null);
+  const [headcount, setHeadcount] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [status, setStatus] = useState<BookingStatus | "all">("all");
@@ -68,13 +69,18 @@ export default function BookingsPage() {
 
     try {
       const params = new URLSearchParams();
-      params.set("module", "shared_storage");
+      params.set("module", "co_working");
       if (statusValue !== "all") params.set("status", statusValue);
       if (qValue.trim()) params.set("q", qValue.trim());
-      const res = await fetch(`/api/bookings?${params.toString()}`, { signal: controller.signal });
+      const [res, headcountRes] = await Promise.all([
+        fetch(`/api/bookings?${params.toString()}`, { signal: controller.signal }),
+        fetch("/api/bookings/headcount?module=co_working", { signal: controller.signal }),
+      ]);
       const body = await res.json();
       if (!res.ok) throw new Error(body?.error ?? `Request failed with status ${res.status}`);
       setData(body as BookingsResponse);
+      const headcountBody = await headcountRes.json();
+      if (headcountRes.ok) setHeadcount(headcountBody.count);
       setError(null);
     } catch (err) {
       if (err instanceof DOMException && err.name === "AbortError") return;
@@ -99,14 +105,14 @@ export default function BookingsPage() {
             <Image src="/spacehub-logo.webp" alt="SpaceHub" width={121} height={36} priority />
             <span className="hidden h-6 w-px sm:block" style={{ background: "var(--gridline)" }} />
             <h1 className="hidden text-sm font-medium sm:block" style={{ color: "var(--text-secondary)" }}>
-              Bookings — Shared Storage
+              Bookings — Co-working
             </h1>
           </div>
           <div className="flex items-baseline gap-4">
-            <Link href="/bookings/containers" className="text-sm hover:underline" style={{ color: "var(--text-secondary)" }}>
-              Container
+            <Link href="/bookings/coworking/addons" className="text-sm hover:underline" style={{ color: "var(--text-secondary)" }}>
+              Addon
             </Link>
-            <Link href="/bookings/rates" className="text-sm hover:underline" style={{ color: "var(--text-secondary)" }}>
+            <Link href="/bookings/coworking/rates" className="text-sm hover:underline" style={{ color: "var(--text-secondary)" }}>
               Harga
             </Link>
             {session?.user?.email && (
@@ -128,14 +134,15 @@ export default function BookingsPage() {
           ← Back to summary
         </Link>
 
-        <ModuleTabs active="shared_storage" />
+        <ModuleTabs active="co_working" />
 
         <div className="mb-6 flex items-center justify-between gap-4">
           <p className="text-sm" style={{ color: "var(--text-secondary)" }}>
             {totalCount} booking total
+            {headcount !== null && ` · ${headcount} orang aktif hari ini`}
           </p>
           <Link
-            href="/bookings/new"
+            href="/bookings/coworking/new"
             className="rounded-full px-4 py-2 text-sm font-medium"
             style={{ background: "var(--series-1)", color: "var(--background)" }}
           >
@@ -205,13 +212,12 @@ export default function BookingsPage() {
                     <th className="px-4 py-3 text-right font-medium" style={{ color: "var(--text-secondary)" }}>Harga</th>
                     <th className="px-4 py-3 font-medium" style={{ color: "var(--text-secondary)" }}>Pembayaran</th>
                     <th className="px-4 py-3 font-medium" style={{ color: "var(--text-secondary)" }}>Status</th>
-                    <th className="px-4 py-3 font-medium" style={{ color: "var(--text-secondary)" }}>Container</th>
                   </tr>
                 </thead>
                 <tbody>
                   {data.bookings.length === 0 && (
                     <tr>
-                      <td colSpan={8} className="px-4 py-8 text-center" style={{ color: "var(--text-muted)" }}>
+                      <td colSpan={7} className="px-4 py-8 text-center" style={{ color: "var(--text-muted)" }}>
                         Belum ada booking.
                       </td>
                     </tr>
@@ -242,7 +248,6 @@ export default function BookingsPage() {
                           {b.isOverdue && <OverdueBadge />}
                         </div>
                       </td>
-                      <td className="px-4 py-3" style={{ color: "var(--text-secondary)" }}>{b.containerLabel ?? "–"}</td>
                     </tr>
                   ))}
                 </tbody>

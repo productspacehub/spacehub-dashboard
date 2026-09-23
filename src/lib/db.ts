@@ -100,10 +100,23 @@ async function createSchema(): Promise<void> {
         UNIQUE (module_type, package_name)
       );
 
+      -- Admin-editable per-module addon menu (e.g. Co-working's free water
+      -- refill/TV/lockers, §7.1) — same "ships empty, admin fills it in"
+      -- pattern as rate_packages.
+      CREATE TABLE IF NOT EXISTS addons (
+        id           SERIAL PRIMARY KEY,
+        module_type  TEXT NOT NULL,
+        name         TEXT NOT NULL,
+        price        NUMERIC(12,2) NOT NULL DEFAULT 0,
+        created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+        updated_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+        UNIQUE (module_type, name)
+      );
+
       -- The core generic booking object (module-agnostic per the spec's §4
-      -- shared data model) — only module_type = 'shared_storage' is active
-      -- in the MVP; the others are reserved for later modules so this table
-      -- doesn't need rework when they're added.
+      -- shared data model) — shared_storage and co_working are active in
+      -- the MVP; meeting_room/studio are reserved for later modules so this
+      -- table doesn't need rework when they're added.
       CREATE TABLE IF NOT EXISTS bookings (
         id                 SERIAL PRIMARY KEY,
         customer_id        INTEGER NOT NULL REFERENCES customers(id),
@@ -127,6 +140,19 @@ async function createSchema(): Promise<void> {
       CREATE INDEX IF NOT EXISTS bookings_status_idx ON bookings (status);
       CREATE INDEX IF NOT EXISTS bookings_container_idx ON bookings (container_id);
       CREATE INDEX IF NOT EXISTS bookings_customer_idx ON bookings (customer_id);
+
+      -- Selected addons per booking, snapshotted (name + price at the time of
+      -- booking) rather than a foreign key to addons — so renaming, repricing,
+      -- or removing an addon from the admin menu never changes what an
+      -- already-made booking shows.
+      CREATE TABLE IF NOT EXISTS booking_addons (
+        id           SERIAL PRIMARY KEY,
+        booking_id   INTEGER NOT NULL REFERENCES bookings(id) ON DELETE CASCADE,
+        addon_name   TEXT NOT NULL,
+        price        NUMERIC(12,2) NOT NULL,
+        created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+      CREATE INDEX IF NOT EXISTS booking_addons_booking_idx ON booking_addons (booking_id);
     `);
     await client.query("COMMIT");
   } catch (err) {

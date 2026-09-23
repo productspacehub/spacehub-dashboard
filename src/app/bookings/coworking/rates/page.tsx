@@ -5,7 +5,7 @@ import { signOut, useSession } from "next-auth/react";
 import { PriceListEditor } from "@/components/bookings/PriceListEditor";
 import type { RatePackage } from "@/lib/bookings";
 
-export default function SharedStorageRatesPage() {
+export default function CoworkingRatesPage() {
   const { data: session } = useSession();
 
   return (
@@ -26,16 +26,16 @@ export default function SharedStorageRatesPage() {
         </header>
 
         <PriceListEditor
-          title="Rate table — Shared Storage"
-          description="Harga per package (mis. Daily, Weekly). Dipakai untuk mengisi harga otomatis saat membuat booking baru — tetap bisa diubah manual per booking."
-          emptyHint='Belum ada package. Tambahkan mis. "Daily" dan "Weekly" dengan harganya.'
-          labelPlaceholder="Nama package, mis. Daily"
-          apiPath="/api/rates?module=shared_storage"
-          backHref="/bookings"
+          title="Rate table — Co-working"
+          description="Harga per package (mis. Hot Desk Daily, Weekly, Monthly). Dipakai untuk mengisi harga otomatis saat membuat booking baru — tetap bisa diubah manual per booking."
+          emptyHint='Belum ada package. Tambahkan mis. "Hot Desk Daily", "Weekly", "Monthly" dengan harganya.'
+          labelPlaceholder="Nama package, mis. Hot Desk Daily"
+          apiPath="/api/rates?module=co_working"
+          backHref="/bookings/coworking"
           backLabel="Kembali ke daftar booking"
           toRows={(json) => ((json as { packages?: RatePackage[] }).packages ?? []).map((p) => ({ label: p.packageName, price: String(p.price) }))}
           toRequestBody={(rows) => ({
-            module: "shared_storage",
+            module: "co_working",
             packages: rows.map((r) => ({ packageName: r.label.trim(), price: Number(r.price) || 0 })),
           })}
         />
