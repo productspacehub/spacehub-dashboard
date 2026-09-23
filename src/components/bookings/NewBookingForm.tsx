@@ -5,7 +5,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { signOut, useSession } from "next-auth/react";
-import type { Addon, BookingDetail, Customer, ModuleType, RatePackage } from "@/lib/bookings";
+import type { Addon, BookingDetail, Customer, ModuleType, RatePackage, ResourceRow } from "@/lib/bookings";
 import { BOOKING_SOURCES, type BookingSource } from "@/lib/bookingConstants";
 
 const inputStyle = {
@@ -24,6 +24,8 @@ export function NewBookingForm({
   backHref,
   ratesHref,
   addonsHref,
+  usesTimeSlots = false,
+  resourcesHref,
   footnote,
 }: {
   moduleType: ModuleType;
@@ -31,6 +33,8 @@ export function NewBookingForm({
   backHref: string;
   ratesHref: string;
   addonsHref: string;
+  usesTimeSlots?: boolean;
+  resourcesHref?: string;
   footnote?: string;
 }) {
   const { data: session } = useSession();
@@ -40,6 +44,7 @@ export function NewBookingForm({
   const [addons, setAddons] = useState<Addon[]>([]);
   // addon name -> quantity (presence in the map = selected)
   const [selectedAddons, setSelectedAddons] = useState<Map<string, number>>(new Map());
+  const [resources, setResources] = useState<ResourceRow[]>([]);
   const [customerQuery, setCustomerQuery] = useState("");
   const [customerResults, setCustomerResults] = useState<Customer[]>([]);
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
@@ -49,6 +54,9 @@ export function NewBookingForm({
   const [packageType, setPackageType] = useState("");
   const [startDate, setStartDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [endDate, setEndDate] = useState("");
+  const [startTime, setStartTime] = useState("");
+  const [endTime, setEndTime] = useState("");
+  const [resourceId, setResourceId] = useState("");
   const [price, setPrice] = useState<string>("");
   const [source, setSource] = useState<BookingSource>("Walk-in");
   const [notes, setNotes] = useState("");
@@ -65,6 +73,13 @@ export function NewBookingForm({
       .then((res) => res.json())
       .then((body) => setAddons(body.addons ?? []))
       .catch(() => setAddons([]));
+    if (usesTimeSlots) {
+      fetch(`/api/resources?module=${moduleType}`)
+        .then((res) => res.json())
+        .then((body) => setResources(body.resources ?? []))
+        .catch(() => setResources([]));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [moduleType]);
 
   useEffect(() => {
@@ -120,6 +135,14 @@ export function NewBookingForm({
       setError("Package, tanggal mulai, dan harga wajib diisi");
       return;
     }
+    if (usesTimeSlots && (!resourceId || !startTime || !endTime)) {
+      setError("Pilih ruang, jam mulai, dan jam selesai");
+      return;
+    }
+    if (usesTimeSlots && startTime >= endTime) {
+      setError("Jam selesai harus setelah jam mulai");
+      return;
+    }
 
     setSubmitting(true);
     try {
@@ -133,6 +156,9 @@ export function NewBookingForm({
           packageType,
           startDate,
           endDate: endDate || null,
+          startTime: usesTimeSlots ? startTime : undefined,
+          endTime: usesTimeSlots ? endTime : undefined,
+          resourceId: usesTimeSlots ? Number(resourceId) : undefined,
           price: Number(price),
           source,
           addons: addons
@@ -275,13 +301,41 @@ export function NewBookingForm({
                 </select>
               </label>
               <label className="flex flex-col gap-1 text-xs" style={{ color: "var(--text-secondary)" }}>
-                Tanggal mulai *
+                Tanggal *
                 <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="rounded-lg border px-3 py-2 text-sm" style={inputStyle} />
               </label>
-              <label className="flex flex-col gap-1 text-xs" style={{ color: "var(--text-secondary)" }}>
-                Tanggal selesai (opsional)
-                <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="rounded-lg border px-3 py-2 text-sm" style={inputStyle} />
-              </label>
+              {usesTimeSlots ? (
+                <>
+                  <label className="flex flex-col gap-1 text-xs" style={{ color: "var(--text-secondary)" }}>
+                    Ruang *
+                    <select value={resourceId} onChange={(e) => setResourceId(e.target.value)} className="rounded-lg border px-3 py-2 text-sm" style={inputStyle}>
+                      <option value="">Pilih ruang…</option>
+                      {resources.map((r) => (
+                        <option key={r.id} value={r.id}>{r.name}</option>
+                      ))}
+                    </select>
+                    {resources.length === 0 && resourcesHref && (
+                      <span style={{ color: "var(--status-warning)" }}>
+                        Belum ada ruang — <Link href={resourcesHref} className="hover:underline" style={{ color: "var(--series-1)" }}>tambahkan dulu</Link>.
+                      </span>
+                    )}
+                  </label>
+                  <label className="flex flex-col gap-1 text-xs" style={{ color: "var(--text-secondary)" }}>
+                    Jam mulai *
+                    <input type="time" value={startTime} onChange={(e) => setStartTime(e.target.value)} className="rounded-lg border px-3 py-2 text-sm" style={inputStyle} />
+                  </label>
+                  <label className="flex flex-col gap-1 text-xs" style={{ color: "var(--text-secondary)" }}>
+                    Jam selesai *
+                    <input type="time" value={endTime} onChange={(e) => setEndTime(e.target.value)} className="rounded-lg border px-3 py-2 text-sm" style={inputStyle} />
+                    <span style={{ color: "var(--text-muted)" }}>Minimal booking 3 jam (belum ditegakkan otomatis oleh sistem).</span>
+                  </label>
+                </>
+              ) : (
+                <label className="flex flex-col gap-1 text-xs" style={{ color: "var(--text-secondary)" }}>
+                  Tanggal selesai (opsional)
+                  <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="rounded-lg border px-3 py-2 text-sm" style={inputStyle} />
+                </label>
+              )}
               <label className="flex flex-col gap-1 text-xs" style={{ color: "var(--text-secondary)" }}>
                 Harga paket (IDR) *
                 <input type="number" min={0} value={price} onChange={(e) => setPrice(e.target.value)} className="rounded-lg border px-3 py-2 text-sm" style={inputStyle} />

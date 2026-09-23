@@ -5,7 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import Image from "next/image";
 import Link from "next/link";
 import { signOut, useSession } from "next-auth/react";
-import type { Addon, BookingAddon, BookingDetail, ContainerRow } from "@/lib/bookings";
+import type { Addon, BookingAddon, BookingDetail, ContainerRow, ResourceRow } from "@/lib/bookings";
 import { BOOKING_STATUSES, MODULE_CONFIG, PAYMENT_STATUSES, type BookingStatus, type PaymentStatus } from "@/lib/bookingConstants";
 
 const inputStyle = {
@@ -36,6 +36,7 @@ export default function BookingDetailPage() {
 
   const [booking, setBooking] = useState<BookingDetail | null>(null);
   const [containers, setContainers] = useState<ContainerRow[]>([]);
+  const [resources, setResources] = useState<ResourceRow[]>([]);
   const [availableAddons, setAvailableAddons] = useState<Addon[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -46,6 +47,9 @@ export default function BookingDetailPage() {
     packageType: string;
     startDate: string;
     endDate: string;
+    startTime: string;
+    endTime: string;
+    resourceId: number | null;
     price: string;
     paymentStatus: PaymentStatus;
     paymentReference: string;
@@ -64,13 +68,15 @@ export default function BookingDetailPage() {
       const loaded = bookingBody.booking!;
 
       const config = MODULE_CONFIG[loaded.moduleType];
-      const [containersBody, addonsBody] = await Promise.all([
+      const [containersBody, resourcesBody, addonsBody] = await Promise.all([
         config.requiresContainer ? fetch("/api/containers").then((r) => r.json()) : Promise.resolve({ containers: [] }),
+        config.usesTimeSlots ? fetch(`/api/resources?module=${loaded.moduleType}`).then((r) => r.json()) : Promise.resolve({ resources: [] }),
         fetch(`/api/addons?module=${loaded.moduleType}`).then((r) => r.json()),
       ]);
 
       setBooking(loaded);
       setContainers((containersBody as { containers?: ContainerRow[] }).containers ?? []);
+      setResources((resourcesBody as { resources?: ResourceRow[] }).resources ?? []);
       setAvailableAddons((addonsBody as { addons?: Addon[] }).addons ?? []);
       setForm({
         customer: {
@@ -83,6 +89,9 @@ export default function BookingDetailPage() {
         packageType: loaded.packageType,
         startDate: loaded.startDate,
         endDate: loaded.endDate ?? "",
+        startTime: loaded.startTime ?? "",
+        endTime: loaded.endTime ?? "",
+        resourceId: loaded.resourceId,
         price: String(loaded.price),
         paymentStatus: loaded.paymentStatus,
         paymentReference: loaded.paymentReference ?? "",
@@ -137,6 +146,9 @@ export default function BookingDetailPage() {
           packageType: form.packageType,
           startDate: form.startDate,
           endDate: form.endDate || null,
+          startTime: MODULE_CONFIG[booking.moduleType].usesTimeSlots ? form.startTime || null : undefined,
+          endTime: MODULE_CONFIG[booking.moduleType].usesTimeSlots ? form.endTime || null : undefined,
+          resourceId: MODULE_CONFIG[booking.moduleType].usesTimeSlots ? form.resourceId : undefined,
           price: Number(form.price),
           paymentStatus: form.paymentStatus,
           paymentReference: form.paymentReference || null,
@@ -180,7 +192,13 @@ export default function BookingDetailPage() {
         </header>
 
         <Link
-          href={booking?.moduleType === "co_working" ? "/bookings/coworking" : "/bookings"}
+          href={
+            booking
+              ? { shared_storage: "/bookings", co_working: "/bookings/coworking", meeting_room: "/bookings/meetingroom", studio: "/bookings/studio" }[
+                  booking.moduleType
+                ]
+              : "/bookings"
+          }
           className="mb-6 inline-block text-sm hover:underline"
           style={{ color: "var(--series-1)" }}
         >
@@ -241,13 +259,40 @@ export default function BookingDetailPage() {
                     {Number(form.price) > 0 && <span style={{ color: "var(--text-muted)" }}>{formatIdr(Number(form.price))}</span>}
                   </label>
                   <label className="flex flex-col gap-1 text-xs" style={{ color: "var(--text-secondary)" }}>
-                    Tanggal mulai
+                    {MODULE_CONFIG[booking.moduleType].usesTimeSlots ? "Tanggal" : "Tanggal mulai"}
                     <input type="date" value={form.startDate} onChange={(e) => setForm({ ...form, startDate: e.target.value })} className="rounded-lg border px-3 py-2 text-sm" style={inputStyle} />
                   </label>
-                  <label className="flex flex-col gap-1 text-xs" style={{ color: "var(--text-secondary)" }}>
-                    Tanggal selesai
-                    <input type="date" value={form.endDate} onChange={(e) => setForm({ ...form, endDate: e.target.value })} className="rounded-lg border px-3 py-2 text-sm" style={inputStyle} />
-                  </label>
+                  {MODULE_CONFIG[booking.moduleType].usesTimeSlots ? (
+                    <>
+                      <label className="flex flex-col gap-1 text-xs" style={{ color: "var(--text-secondary)" }}>
+                        Ruang
+                        <select
+                          value={form.resourceId ?? ""}
+                          onChange={(e) => setForm({ ...form, resourceId: e.target.value ? Number(e.target.value) : null })}
+                          className="rounded-lg border px-3 py-2 text-sm"
+                          style={inputStyle}
+                        >
+                          <option value="">Pilih ruang…</option>
+                          {resources.map((r) => (
+                            <option key={r.id} value={r.id}>{r.name}</option>
+                          ))}
+                        </select>
+                      </label>
+                      <label className="flex flex-col gap-1 text-xs" style={{ color: "var(--text-secondary)" }}>
+                        Jam mulai
+                        <input type="time" value={form.startTime} onChange={(e) => setForm({ ...form, startTime: e.target.value })} className="rounded-lg border px-3 py-2 text-sm" style={inputStyle} />
+                      </label>
+                      <label className="flex flex-col gap-1 text-xs" style={{ color: "var(--text-secondary)" }}>
+                        Jam selesai
+                        <input type="time" value={form.endTime} onChange={(e) => setForm({ ...form, endTime: e.target.value })} className="rounded-lg border px-3 py-2 text-sm" style={inputStyle} />
+                      </label>
+                    </>
+                  ) : (
+                    <label className="flex flex-col gap-1 text-xs" style={{ color: "var(--text-secondary)" }}>
+                      Tanggal selesai
+                      <input type="date" value={form.endDate} onChange={(e) => setForm({ ...form, endDate: e.target.value })} className="rounded-lg border px-3 py-2 text-sm" style={inputStyle} />
+                    </label>
+                  )}
                 </div>
                 <label className="mt-4 flex flex-col gap-1 text-xs" style={{ color: "var(--text-secondary)" }}>
                   Catatan booking

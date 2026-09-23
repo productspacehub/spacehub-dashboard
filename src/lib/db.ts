@@ -113,10 +113,26 @@ async function createSchema(): Promise<void> {
         UNIQUE (module_type, name)
       );
 
+      -- Bookable rooms for Meeting Room / Studio (§7.2) — the calendar-module
+      -- equivalent of Container, but availability isn't a single current
+      -- Free/Assigned state: one room serves many different bookings across
+      -- a day, just not overlapping ones, so "is it free" is always a
+      -- time-range query against bookings (see checkResourceConflict in
+      -- src/lib/bookings.ts) rather than a stored/derived status column.
+      CREATE TABLE IF NOT EXISTS resources (
+        id           SERIAL PRIMARY KEY,
+        module_type  TEXT NOT NULL,
+        name         TEXT NOT NULL,
+        created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+        UNIQUE (module_type, name)
+      );
+
       -- The core generic booking object (module-agnostic per the spec's §4
-      -- shared data model) — shared_storage and co_working are active in
-      -- the MVP; meeting_room/studio are reserved for later modules so this
-      -- table doesn't need rework when they're added.
+      -- shared data model) — shared_storage, co_working, meeting_room, and
+      -- studio are all active. start_time/end_time/resource_id are only
+      -- used by the calendar modules (meeting_room/studio) — NULL
+      -- everywhere else, same as container_id being unused outside
+      -- shared_storage.
       CREATE TABLE IF NOT EXISTS bookings (
         id                 SERIAL PRIMARY KEY,
         customer_id        INTEGER NOT NULL REFERENCES customers(id),
@@ -125,8 +141,11 @@ async function createSchema(): Promise<void> {
         package_type       TEXT NOT NULL,
         start_date         DATE NOT NULL,
         end_date           DATE,
+        start_time         TIME,
+        end_time           TIME,
         price              NUMERIC(12,2) NOT NULL,
         container_id       INTEGER REFERENCES containers(id),
+        resource_id        INTEGER REFERENCES resources(id),
         status             TEXT NOT NULL DEFAULT 'Pending Payment'
                              CHECK (status IN ('Pending Payment', 'Confirmed', 'Active', 'Completed', 'Cancelled', 'No-Show')),
         payment_status     TEXT NOT NULL DEFAULT 'Unpaid' CHECK (payment_status IN ('Unpaid', 'Paid')),
@@ -140,6 +159,12 @@ async function createSchema(): Promise<void> {
       CREATE INDEX IF NOT EXISTS bookings_status_idx ON bookings (status);
       CREATE INDEX IF NOT EXISTS bookings_container_idx ON bookings (container_id);
       CREATE INDEX IF NOT EXISTS bookings_customer_idx ON bookings (customer_id);
+      CREATE INDEX IF NOT EXISTS bookings_resource_idx ON bookings (resource_id);
+      -- Safety net for a bookings table that already existed before these
+      -- columns were added (same reasoning as booking_addons.quantity below).
+      ALTER TABLE bookings ADD COLUMN IF NOT EXISTS start_time TIME;
+      ALTER TABLE bookings ADD COLUMN IF NOT EXISTS end_time TIME;
+      ALTER TABLE bookings ADD COLUMN IF NOT EXISTS resource_id INTEGER REFERENCES resources(id);
 
       -- Selected addons per booking, snapshotted (name + price at the time of
       -- booking) rather than a foreign key to addons — so renaming, repricing,

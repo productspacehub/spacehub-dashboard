@@ -5,25 +5,37 @@
 
 // module_type values live on the shared bookings/rate_packages/addons tables
 // (§4 of the booking MVP spec — deliberately module-agnostic so a new module
-// only adds config here, never a schema change). meeting_room/studio are
-// reserved for when those modules are scoped in detail.
-export const MODULE_TYPES = ["shared_storage", "co_working"] as const;
+// only adds config here, never a schema change).
+export const MODULE_TYPES = ["shared_storage", "co_working", "meeting_room", "studio"] as const;
 export type ModuleType = (typeof MODULE_TYPES)[number];
 
 export const MODULE_LABELS: Record<ModuleType, string> = {
   shared_storage: "Shared Storage",
   co_working: "Co-working",
+  meeting_room: "Meeting Room",
+  studio: "Studio",
 };
 
-// Where the two modules' booking lifecycle actually differs:
+// Where the four modules' booking lifecycle/fields actually differ:
 // - shared_storage: Confirmed -> Active only happens when admin assigns a
 //   Free container at drop-off (a real physical event to wait for).
 // - co_working: availability is a headcount check, not a per-unit resource,
 //   so there's nothing to wait for after payment — paying jumps straight to
 //   Active instead of stopping at Confirmed.
-export const MODULE_CONFIG: Record<ModuleType, { requiresContainer: boolean; autoActivateOnPayment: boolean }> = {
-  shared_storage: { requiresContainer: true, autoActivateOnPayment: false },
-  co_working: { requiresContainer: false, autoActivateOnPayment: true },
+// - meeting_room / studio: booked by time slot (§7.2), not just a date — a
+//   room is picked and its schedule checked for conflicts up front, at
+//   creation, not deferred to an Active-transition gate like Container. So
+//   they behave like shared_storage for the payment->status transition
+//   (stop at Confirmed — there's no "the meeting is happening now" trigger
+//   worth automating), but need usesTimeSlots for the extra fields/checks.
+export const MODULE_CONFIG: Record<
+  ModuleType,
+  { requiresContainer: boolean; autoActivateOnPayment: boolean; usesTimeSlots: boolean }
+> = {
+  shared_storage: { requiresContainer: true, autoActivateOnPayment: false, usesTimeSlots: false },
+  co_working: { requiresContainer: false, autoActivateOnPayment: true, usesTimeSlots: false },
+  meeting_room: { requiresContainer: false, autoActivateOnPayment: false, usesTimeSlots: true },
+  studio: { requiresContainer: false, autoActivateOnPayment: false, usesTimeSlots: true },
 };
 
 export const BOOKING_STATUSES = [

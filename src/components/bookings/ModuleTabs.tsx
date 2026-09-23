@@ -6,6 +6,8 @@ import type { ModuleType } from "@/lib/bookings";
 const TABS: { moduleType: ModuleType; href: string; label: string }[] = [
   { moduleType: "shared_storage", href: "/bookings", label: "Shared Storage" },
   { moduleType: "co_working", href: "/bookings/coworking", label: "Co-working" },
+  { moduleType: "meeting_room", href: "/bookings/meetingroom", label: "Meeting Room" },
+  { moduleType: "studio", href: "/bookings/studio", label: "Studio" },
 ];
 
 // Switches between the Booking tool's modules — each gets its own list/create

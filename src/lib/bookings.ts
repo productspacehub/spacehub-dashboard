@@ -48,6 +48,11 @@ export type ContainerRow = {
   currentCustomerName: string | null;
 };
 
+export type ResourceRow = {
+  id: number;
+  name: string;
+};
+
 export type BookingListItem = {
   id: number;
   moduleType: ModuleType;
@@ -56,6 +61,12 @@ export type BookingListItem = {
   packageType: string;
   startDate: string;
   endDate: string | null;
+  // Only set for modules with usesTimeSlots (Meeting Room / Studio) — "HH:MM"
+  // on the Jakarta wall-clock, same day as startDate (no overnight spans).
+  startTime: string | null;
+  endTime: string | null;
+  resourceId: number | null;
+  resourceName: string | null;
   price: number;
   // Sum of price * quantity across the booking's selected addons — computed
   // via SQL aggregate at read time, not stored, so it can't drift out of
@@ -279,6 +290,54 @@ export async function createContainer(label: string): Promise<ContainerRow> {
   return rows[0];
 }
 
+// --- Resources (meeting_room / studio — bookable rooms, §7.2) -------------
+
+export async function listResources(moduleType: ModuleType): Promise<ResourceRow[]> {
+  await ensureSchema();
+  return query<ResourceRow>(`SELECT id, name FROM resources WHERE module_type = $1 ORDER BY name ASC`, [moduleType]);
+}
+
+export async function createResource(moduleType: ModuleType, name: string): Promise<ResourceRow> {
+  await ensureSchema();
+  const trimmed = name.trim();
+  if (!trimmed) throw new Error("Nama ruang wajib diisi");
+  const rows = await query<ResourceRow>(`INSERT INTO resources (module_type, name) VALUES ($1, $2) RETURNING id, name`, [
+    moduleType,
+    trimmed,
+  ]);
+  return rows[0];
+}
+
+// A room can serve many different bookings across a day, just not
+// overlapping ones — so unlike Container, there's no single current
+// Free/Assigned state to check. Availability is always this time-range
+// query instead: does any *other* non-cancelled booking on this resource,
+// same day, overlap the requested start_time..end_time. Cancelled/No-Show
+// bookings never block a slot; every other status does (including Pending
+// Payment — the slot is provisionally held from the moment it's booked, not
+// just once paid, so two admins can't both promise the same slot to
+// different customers while one payment is still pending).
+export async function checkResourceConflict(
+  resourceId: number,
+  date: string,
+  startTime: string,
+  endTime: string,
+  excludeBookingId?: number
+): Promise<boolean> {
+  await ensureSchema();
+  const params: unknown[] = [resourceId, date, endTime, startTime];
+  let sql = `SELECT 1 FROM bookings
+             WHERE resource_id = $1 AND start_date = $2
+               AND status NOT IN ('Cancelled', 'No-Show')
+               AND start_time < $3 AND end_time > $4`;
+  if (excludeBookingId !== undefined) {
+    params.push(excludeBookingId);
+    sql += ` AND id <> $${params.length}`;
+  }
+  const rows = await query(`${sql} LIMIT 1`, params);
+  return rows.length > 0;
+}
+
 // --- Headcount (co_working — availability is informational only in the MVP) --
 
 // Counts bookings whose date range covers today, regardless of whether an
@@ -303,11 +362,15 @@ const LIST_SELECT = `
   SELECT b.id, b.module_type, cu.name AS customer_name, cu.phone AS customer_phone, b.package_type,
          to_char(b.start_date, 'YYYY-MM-DD') AS start_date,
          to_char(b.end_date, 'YYYY-MM-DD') AS end_date,
+         to_char(b.start_time, 'HH24:MI') AS start_time,
+         to_char(b.end_time, 'HH24:MI') AS end_time,
+         b.resource_id, res.name AS resource_name,
          b.price, b.status, b.payment_status, co.label AS container_label,
          b.created_at, COALESCE(addon_totals.total, 0) AS addons_total
   FROM bookings b
   JOIN customers cu ON cu.id = b.customer_id
   LEFT JOIN containers co ON co.id = b.container_id
+  LEFT JOIN resources res ON res.id = b.resource_id
   LEFT JOIN (
     SELECT booking_id, SUM(price * quantity) AS total FROM booking_addons GROUP BY booking_id
   ) addon_totals ON addon_totals.booking_id = b.id
@@ -321,6 +384,10 @@ type ListRow = {
   package_type: string;
   start_date: string;
   end_date: string | null;
+  start_time: string | null;
+  end_time: string | null;
+  resource_id: number | null;
+  resource_name: string | null;
   price: string;
   status: BookingStatus;
   payment_status: PaymentStatus;
@@ -338,6 +405,10 @@ function mapListRow(r: ListRow, today: string): BookingListItem {
     packageType: r.package_type,
     startDate: r.start_date,
     endDate: r.end_date,
+    startTime: r.start_time,
+    endTime: r.end_time,
+    resourceId: r.resource_id,
+    resourceName: r.resource_name,
     price: Number(r.price),
     addonsTotal: Number(r.addons_total),
     status: r.status,
@@ -399,12 +470,16 @@ export async function getBooking(id: number): Promise<BookingDetail | null> {
     `SELECT b.id, b.module_type, cu.name AS customer_name, cu.phone AS customer_phone, b.package_type,
             to_char(b.start_date, 'YYYY-MM-DD') AS start_date,
             to_char(b.end_date, 'YYYY-MM-DD') AS end_date,
+            to_char(b.start_time, 'HH24:MI') AS start_time,
+            to_char(b.end_time, 'HH24:MI') AS end_time,
+            b.resource_id, res.name AS resource_name,
             b.price, b.status, b.payment_status, co.label AS container_label,
             b.created_at, b.container_id, b.payment_reference, b.source, b.created_by, b.notes,
             cu.id AS cu_id, cu.email AS cu_email, cu.id_number AS cu_id_number, cu.notes AS cu_notes
      FROM bookings b
      JOIN customers cu ON cu.id = b.customer_id
      LEFT JOIN containers co ON co.id = b.container_id
+     LEFT JOIN resources res ON res.id = b.resource_id
      WHERE b.id = $1`,
     [id]
   );
@@ -432,6 +507,9 @@ export type CreateBookingInput = {
   packageType: string;
   startDate: string;
   endDate?: string | null;
+  startTime?: string | null;
+  endTime?: string | null;
+  resourceId?: number | null;
   price: number;
   source: BookingSource;
   addons?: BookingAddon[];
@@ -445,11 +523,25 @@ export async function createBooking(input: CreateBookingInput): Promise<BookingD
     throw new Error("Pilih customer yang sudah ada atau isi data customer baru");
   }
 
+  const config = MODULE_CONFIG[input.moduleType];
+  if (config.usesTimeSlots) {
+    if (!input.resourceId || !input.startTime || !input.endTime) {
+      throw new Error("Pilih ruang, jam mulai, dan jam selesai");
+    }
+    if (input.startTime >= input.endTime) {
+      throw new Error("Jam selesai harus setelah jam mulai");
+    }
+    const conflict = await checkResourceConflict(input.resourceId, input.startDate, input.startTime, input.endTime);
+    if (conflict) {
+      throw new Error("Ruang ini sudah dibooking pada jam tersebut — pilih jam atau ruang lain");
+    }
+  }
+
   const customerId = input.customerId ?? (await createCustomer(input.newCustomer!)).id;
 
   const rows = await query<{ id: number }>(
-    `INSERT INTO bookings (customer_id, module_type, package_type, start_date, end_date, price, source, notes, created_by)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+    `INSERT INTO bookings (customer_id, module_type, package_type, start_date, end_date, start_time, end_time, resource_id, price, source, notes, created_by)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
      RETURNING id`,
     [
       customerId,
@@ -457,6 +549,9 @@ export async function createBooking(input: CreateBookingInput): Promise<BookingD
       input.packageType,
       input.startDate,
       input.endDate || null,
+      config.usesTimeSlots ? input.startTime : null,
+      config.usesTimeSlots ? input.endTime : null,
+      config.usesTimeSlots ? input.resourceId : null,
       input.price,
       input.source,
       input.notes?.trim() || null,
@@ -477,6 +572,9 @@ export type UpdateBookingInput = {
   packageType?: string;
   startDate?: string;
   endDate?: string | null;
+  startTime?: string | null;
+  endTime?: string | null;
+  resourceId?: number | null;
   price?: number;
   paymentStatus?: PaymentStatus;
   paymentReference?: string | null;
@@ -540,6 +638,31 @@ export async function updateBooking(id: number, patch: UpdateBookingInput): Prom
     nextContainerId = existing.containerId;
   }
 
+  const nextStartDate = patch.startDate ?? existing.startDate;
+  const nextStartTime = patch.startTime !== undefined ? patch.startTime : existing.startTime;
+  const nextEndTime = patch.endTime !== undefined ? patch.endTime : existing.endTime;
+  const nextResourceId = patch.resourceId !== undefined ? patch.resourceId : existing.resourceId;
+
+  if (config.usesTimeSlots && !["Cancelled", "No-Show"].includes(nextStatus)) {
+    if (!nextResourceId || !nextStartTime || !nextEndTime) {
+      throw new Error("Pilih ruang, jam mulai, dan jam selesai");
+    }
+    if (nextStartTime >= nextEndTime) {
+      throw new Error("Jam selesai harus setelah jam mulai");
+    }
+    const scheduleChanged =
+      nextResourceId !== existing.resourceId ||
+      nextStartDate !== existing.startDate ||
+      nextStartTime !== existing.startTime ||
+      nextEndTime !== existing.endTime;
+    if (scheduleChanged) {
+      const conflict = await checkResourceConflict(nextResourceId, nextStartDate, nextStartTime, nextEndTime, id);
+      if (conflict) {
+        throw new Error("Ruang ini sudah dibooking pada jam tersebut — pilih jam atau ruang lain");
+      }
+    }
+  }
+
   const fields: string[] = [];
   const params: unknown[] = [];
   const set = (col: string, value: unknown) => {
@@ -548,8 +671,11 @@ export async function updateBooking(id: number, patch: UpdateBookingInput): Prom
   };
 
   set("package_type", patch.packageType ?? existing.packageType);
-  set("start_date", patch.startDate ?? existing.startDate);
+  set("start_date", nextStartDate);
   set("end_date", patch.endDate !== undefined ? patch.endDate || null : existing.endDate);
+  set("start_time", config.usesTimeSlots ? nextStartTime : null);
+  set("end_time", config.usesTimeSlots ? nextEndTime : null);
+  set("resource_id", config.usesTimeSlots ? nextResourceId : null);
   set("price", patch.price ?? existing.price);
   set("payment_status", nextPaymentStatus);
   set("payment_reference", patch.paymentReference !== undefined ? patch.paymentReference || null : existing.paymentReference);

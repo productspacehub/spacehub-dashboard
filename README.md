@@ -227,16 +227,18 @@ Open [http://localhost:3000](http://localhost:3000) — you'll be redirected to
   `src/lib/db.ts`'s `ensureSchema`), since shared storage/co-working/
   meeting-room/studio bookings are a separate business line with no
   Storeganise equivalent. The data model is intentionally module-agnostic (a
-  `module_type` column on the shared tables — `shared_storage` and
-  `co_working` are active; `meeting_room`/`studio` are reserved) so each new
-  module only adds config (`MODULE_CONFIG` in `src/lib/bookingConstants.ts`),
-  never a schema rework. `/bookings` (Shared Storage) and
-  `/bookings/coworking` (Co-working) are separate list/create pages — their
-  meaningful fields differ too much to share one table (Container vs.
-  Addons) — switchable via the tab row at the top of either
-  (`ModuleTabs`), but `/bookings/[id]` is one shared, adaptive detail page:
-  it renders a Container section or an Addons section depending on the
-  loaded booking's own `moduleType`.
+  `module_type` column on the shared tables — all four modules,
+  `shared_storage`/`co_working`/`meeting_room`/`studio`, are active) so each
+  new module only adds config (`MODULE_CONFIG` in
+  `src/lib/bookingConstants.ts`), never a schema rework. `/bookings` (Shared
+  Storage), `/bookings/coworking` (Co-working), `/bookings/meetingroom`
+  (Meeting Room), and `/bookings/studio` (Studio) are separate list/create
+  pages — their meaningful fields differ too much to share one table
+  (Container vs. Addons vs. time slot + room) — switchable via the tab row
+  at the top of any of them (`ModuleTabs`), but `/bookings/[id]` is one
+  shared, adaptive detail page: it renders a Container section, an Addons
+  section, and/or a room+time-slot section depending on the loaded
+  booking's own `moduleType`.
   - **Customer** (`customers` table) is shared across all modules by design —
     one record reused everywhere, searchable by phone or name
     (`GET /api/customers?q=`), with inline creation from the booking form.
@@ -272,20 +274,50 @@ Open [http://localhost:3000](http://localhost:3000) — you'll be redirected to
     search by Container ID, see which customer/booking currently holds it,
     add new containers one at a time (no bulk import in the MVP; admins add
     them as needed).
+  - **Meeting Room / Studio** (`resources` table; `start_time`/`end_time`/
+    `resource_id` columns on `bookings`) are the two time-slot modules
+    (`usesTimeSlots: true` in `MODULE_CONFIG`) — functionally identical to
+    each other (same conflict rules, same UI), just scoped to a different
+    `module_type` and a different set of rooms, so they share almost all of
+    their code: `TimeSlotBookingList`/`TimeSlotResourcesPage` components and
+    a `checkResourceConflict` helper in `src/lib/bookings.ts`, with each
+    module's pages (`/bookings/meetingroom/*`, `/bookings/studio/*`) as
+    thin wrappers passing in `moduleType`. Unlike Shared Storage/Co-working,
+    a booking here has no separate end date — one `start_date` plus a
+    `start_time`/`end_time` pair — and instead of a Container, it needs a
+    `resource_id` (which room). `/bookings/meetingroom/resources` and
+    `/bookings/studio/resources` are simple add-only room lists (no
+    Free/Assigned state like Container: a room isn't "occupied" as a
+    whole, just unavailable for specific overlapping time ranges).
+    `createBooking`/`updateBooking` reject a new or edited booking whose
+    room+date+time-range overlaps another **non-cancelled** booking on the
+    same room (interval overlap: `start_time < newEnd AND end_time >
+    newStart`), automatically and with no manual override in the MVP —
+    surfaced to the admin as a plain error message on the booking form
+    rather than a calendar UI (a full calendar/grid view was considered and
+    deliberately deferred; a sorted list is enough for v1's expected
+    volume). Pricing here is manual, same as the other modules — there is
+    no automatic per-hour rate calculation from the selected time range, so
+    "Harga paket" is a plain editable field the admin fills in themselves
+    (the New Booking form does show a soft reminder, "Minimal booking 3
+    jam", but this is **not enforced** — an admin can still save a
+    booking shorter than 3 hours if the business needs to allow one).
   - **Rate/Package Config** (`rate_packages` table) is an admin-editable
     price list per module (e.g. Daily/Weekly for Shared Storage; Hot Desk
     Daily/Weekly/Monthly for Co-working) rather than hardcoded pricing,
     since real numbers weren't finalized when this shipped. `PUT /api/rates`
     (`?module=`) replaces the whole list for that module in one call (upsert
     what's present, delete what's dropped) — simple enough for a handful of
-    rows an admin edits together, at `/bookings/rates` and
-    `/bookings/coworking/rates`. Ships with no rows; a booking's package can
+    rows an admin edits together, at `/bookings/rates`,
+    `/bookings/coworking/rates`, `/bookings/meetingroom/rates`, and
+    `/bookings/studio/rates`. Ships with no rows; a booking's package can
     still be entered manually if the rate table is empty. Selecting a
     package on a booking's create form pre-fills price from this table, but
     price stays editable per-booking (manual overrides/discounts, per the
     spec).
-  - **Addons** (`addons` table, admin-editable at `/bookings/addons` and
-    `/bookings/coworking/addons` — Padlock for Shared Storage; free water
+  - **Addons** (`addons` table, admin-editable at `/bookings/addons`,
+    `/bookings/coworking/addons`, `/bookings/meetingroom/addons`, and
+    `/bookings/studio/addons` — Padlock for Shared Storage; free water
     refill/TV/lockers for Co-working) follow the same "ships empty, replace
     the whole list" pattern as rate packages (`PUT /api/addons?module=`),
     and are available to every module — the spec's "not used by Shared
