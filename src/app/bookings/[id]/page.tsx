@@ -6,7 +6,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { signOut, useSession } from "next-auth/react";
 import type { Addon, BookingAddon, BookingDetail, ContainerRow, ResourceRow } from "@/lib/bookings";
-import { BOOKING_STATUSES, MODULE_CONFIG, PAYMENT_STATUSES, type BookingStatus, type PaymentStatus } from "@/lib/bookingConstants";
+import { BOOKING_STATUSES, MODULE_CONFIG, MODULE_INDEX_HREF, PAYMENT_STATUSES, type BookingStatus, type PaymentStatus } from "@/lib/bookingConstants";
 
 const inputStyle = {
   background: "var(--background)",
@@ -160,7 +160,7 @@ export default function BookingDetailPage() {
       });
       const body = (await res.json()) as { booking?: BookingDetail; error?: string };
       if (!res.ok) throw new Error(body.error ?? "Gagal menyimpan");
-      router.push("/bookings");
+      router.push(MODULE_INDEX_HREF[booking.moduleType]);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Gagal menyimpan");
     } finally {
@@ -192,13 +192,7 @@ export default function BookingDetailPage() {
         </header>
 
         <Link
-          href={
-            booking
-              ? { shared_storage: "/bookings", co_working: "/bookings/coworking", meeting_room: "/bookings/meetingroom", studio: "/bookings/studio" }[
-                  booking.moduleType
-                ]
-              : "/bookings"
-          }
+          href={booking ? MODULE_INDEX_HREF[booking.moduleType] : "/bookings"}
           className="mb-6 inline-block text-sm hover:underline"
           style={{ color: "var(--series-1)" }}
         >

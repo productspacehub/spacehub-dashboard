@@ -42,6 +42,18 @@ export const MODULE_CONFIG: Record<
   studio: { requiresContainer: false, autoActivateOnPayment: false, usesTimeSlots: true, minBookingHours: 3 },
 };
 
+// Each module's own list page — the single source of truth for "where does
+// a booking belonging to this module live." Used both by the "back to list"
+// link and by the post-save redirect on the detail page; having two copies
+// of this map is exactly how the post-save redirect drifted out of sync and
+// kept sending every module back to Shared Storage's list after a save.
+export const MODULE_INDEX_HREF: Record<ModuleType, string> = {
+  shared_storage: "/bookings",
+  co_working: "/bookings/coworking",
+  meeting_room: "/bookings/meetingroom",
+  studio: "/bookings/studio",
+};
+
 export const BOOKING_STATUSES = [
   "Pending Payment",
   "Confirmed",
