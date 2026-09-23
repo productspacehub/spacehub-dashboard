@@ -25,7 +25,10 @@ export async function GET(request: NextRequest) {
 
 export async function PUT(request: NextRequest) {
   try {
-    const body = (await request.json()) as { module?: string; packages?: { packageName: string; price: number }[] };
+    const body = (await request.json()) as {
+      module?: string;
+      packages?: { packageName: string; price: number; resourceId?: number | null }[];
+    };
     const moduleType = parseModule(body.module ?? null);
     if (!moduleType) return NextResponse.json({ error: "Modul tidak valid" }, { status: 400 });
     if (!Array.isArray(body.packages)) {
@@ -37,6 +40,9 @@ export async function PUT(request: NextRequest) {
       }
       if (typeof pkg.price !== "number" || pkg.price < 0 || Number.isNaN(pkg.price)) {
         return NextResponse.json({ error: `Harga untuk ${pkg.packageName} tidak valid` }, { status: 400 });
+      }
+      if (pkg.resourceId != null && typeof pkg.resourceId !== "number") {
+        return NextResponse.json({ error: `Ruang untuk ${pkg.packageName} tidak valid` }, { status: 400 });
       }
     }
     const packages = await setRatePackages(body.packages, moduleType);

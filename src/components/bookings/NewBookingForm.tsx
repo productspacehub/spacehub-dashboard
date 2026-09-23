@@ -94,10 +94,29 @@ export function NewBookingForm({
     return () => clearTimeout(id);
   }, [customerQuery, selectedCustomer, creatingNewCustomer]);
 
+  // Room-specific price (if one exists for this package+room) wins over the
+  // room-less fallback price for the same package name — matches the
+  // rate_packages_module_pkg_resource_idx priority on the server.
+  function findRate(name: string, resId: string): RatePackage | undefined {
+    const specific = usesTimeSlots && resId ? rates.find((r) => r.packageName === name && r.resourceId === Number(resId)) : undefined;
+    return specific ?? rates.find((r) => r.packageName === name && r.resourceId === null);
+  }
+
   function handlePackageChange(name: string) {
     setPackageType(name);
-    const rate = rates.find((r) => r.packageName === name);
+    const rate = findRate(name, resourceId);
     if (rate) setPrice(String(rate.price));
+  }
+
+  // Re-prices an already-picked package when the room changes (form fields
+  // can be filled in either order) — same lookup, just triggered from the
+  // other side.
+  function handleResourceChange(id: string) {
+    setResourceId(id);
+    if (packageType) {
+      const rate = findRate(packageType, id);
+      if (rate) setPrice(String(rate.price));
+    }
   }
 
   function toggleAddon(name: string) {
@@ -116,6 +135,27 @@ export function NewBookingForm({
       return next;
     });
   }
+
+  // One dropdown option per package name for the currently selected room —
+  // a generic (resourceId null) row and a room-specific row can share the
+  // same packageName (that's the whole point of per-room pricing), but a
+  // native <select> can't tell two options with an identical `value` apart,
+  // so only the more specific one is shown once a room is picked; findRate
+  // already prefers it either way, this just keeps the list from showing
+  // two visually-identical entries that both silently resolve to the same
+  // (specific) price.
+  const visiblePackageRates = usesTimeSlots
+    ? Array.from(
+        rates
+          .filter((r) => r.resourceId === null || r.resourceId === Number(resourceId))
+          .reduce((map, r) => {
+            const existing = map.get(r.packageName);
+            if (!existing || r.resourceId !== null) map.set(r.packageName, r);
+            return map;
+          }, new Map<string, RatePackage>())
+          .values()
+      )
+    : rates;
 
   const addonsTotal = addons.reduce((sum, a) => sum + (selectedAddons.has(a.name) ? a.price * selectedAddons.get(a.name)! : 0), 0);
   const grandTotal = (Number(price) || 0) + addonsTotal;
@@ -282,12 +322,44 @@ export function NewBookingForm({
           <section className="rounded-2xl border p-6" style={{ background: "var(--surface-1)", borderColor: "var(--gridline)" }}>
             <p className="mb-4 text-sm font-semibold" style={{ color: "var(--text-primary)" }}>Detail booking</p>
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              {usesTimeSlots && (
+                <>
+                  <label className="flex flex-col gap-1 text-xs" style={{ color: "var(--text-secondary)" }}>
+                    Ruang *
+                    <select value={resourceId} onChange={(e) => handleResourceChange(e.target.value)} className="rounded-lg border px-3 py-2 text-sm" style={inputStyle}>
+                      <option value="">Pilih ruang…</option>
+                      {resources.map((r) => (
+                        <option key={r.id} value={r.id}>{r.name}</option>
+                      ))}
+                    </select>
+                    {resources.length === 0 && resourcesHref && (
+                      <span style={{ color: "var(--status-warning)" }}>
+                        Belum ada ruang — <Link href={resourcesHref} className="hover:underline" style={{ color: "var(--series-1)" }}>tambahkan dulu</Link>.
+                      </span>
+                    )}
+                  </label>
+                  <label className="flex flex-col gap-1 text-xs" style={{ color: "var(--text-secondary)" }}>
+                    Jam mulai *
+                    <input type="time" value={startTime} onChange={(e) => setStartTime(e.target.value)} className="rounded-lg border px-3 py-2 text-sm" style={inputStyle} />
+                  </label>
+                  <label className="flex flex-col gap-1 text-xs" style={{ color: "var(--text-secondary)" }}>
+                    Jam selesai *
+                    <input type="time" value={endTime} onChange={(e) => setEndTime(e.target.value)} className="rounded-lg border px-3 py-2 text-sm" style={inputStyle} />
+                    {minBookingHours && (
+                      <span style={{ color: "var(--text-muted)" }}>Minimal booking {minBookingHours} jam.</span>
+                    )}
+                  </label>
+                </>
+              )}
               <label className="flex flex-col gap-1 text-xs" style={{ color: "var(--text-secondary)" }}>
                 Package *
                 <select value={packageType} onChange={(e) => handlePackageChange(e.target.value)} className="rounded-lg border px-3 py-2 text-sm" style={inputStyle}>
                   <option value="">Pilih package…</option>
-                  {rates.map((r) => (
-                    <option key={r.id} value={r.packageName}>{r.packageName}</option>
+                  {visiblePackageRates.map((r) => (
+                    <option key={r.id} value={r.packageName}>
+                      {r.packageName}
+                      {r.resourceId !== null ? " (harga khusus ruang ini)" : ""}
+                    </option>
                   ))}
                 </select>
                 {rates.length === 0 && (
@@ -314,35 +386,7 @@ export function NewBookingForm({
                 Tanggal *
                 <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="rounded-lg border px-3 py-2 text-sm" style={inputStyle} />
               </label>
-              {usesTimeSlots ? (
-                <>
-                  <label className="flex flex-col gap-1 text-xs" style={{ color: "var(--text-secondary)" }}>
-                    Ruang *
-                    <select value={resourceId} onChange={(e) => setResourceId(e.target.value)} className="rounded-lg border px-3 py-2 text-sm" style={inputStyle}>
-                      <option value="">Pilih ruang…</option>
-                      {resources.map((r) => (
-                        <option key={r.id} value={r.id}>{r.name}</option>
-                      ))}
-                    </select>
-                    {resources.length === 0 && resourcesHref && (
-                      <span style={{ color: "var(--status-warning)" }}>
-                        Belum ada ruang — <Link href={resourcesHref} className="hover:underline" style={{ color: "var(--series-1)" }}>tambahkan dulu</Link>.
-                      </span>
-                    )}
-                  </label>
-                  <label className="flex flex-col gap-1 text-xs" style={{ color: "var(--text-secondary)" }}>
-                    Jam mulai *
-                    <input type="time" value={startTime} onChange={(e) => setStartTime(e.target.value)} className="rounded-lg border px-3 py-2 text-sm" style={inputStyle} />
-                  </label>
-                  <label className="flex flex-col gap-1 text-xs" style={{ color: "var(--text-secondary)" }}>
-                    Jam selesai *
-                    <input type="time" value={endTime} onChange={(e) => setEndTime(e.target.value)} className="rounded-lg border px-3 py-2 text-sm" style={inputStyle} />
-                    {minBookingHours && (
-                      <span style={{ color: "var(--text-muted)" }}>Minimal booking {minBookingHours} jam.</span>
-                    )}
-                  </label>
-                </>
-              ) : (
+              {!usesTimeSlots && (
                 <label className="flex flex-col gap-1 text-xs" style={{ color: "var(--text-secondary)" }}>
                   Tanggal selesai (opsional)
                   <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="rounded-lg border px-3 py-2 text-sm" style={inputStyle} />

@@ -26,6 +26,11 @@ export type RatePackage = {
   id: number;
   packageName: string;
   price: number;
+  // Only meaningful for Meeting Room/Studio — null means this price applies
+  // to every room that doesn't have its own override for the same package
+  // name (see rate_packages_module_pkg_resource_idx in src/lib/db.ts).
+  resourceId: number | null;
+  resourceName: string | null;
 };
 
 export type Addon = {
@@ -147,32 +152,60 @@ function mapCustomer(row: CustomerRow): Customer {
 
 export async function getRatePackages(moduleType: ModuleType): Promise<RatePackage[]> {
   await ensureSchema();
-  const rows = await query<{ id: number; package_name: string; price: string }>(
-    `SELECT id, package_name, price FROM rate_packages WHERE module_type = $1 ORDER BY package_name ASC`,
+  const rows = await query<{ id: number; package_name: string; price: string; resource_id: number | null; resource_name: string | null }>(
+    `SELECT rp.id, rp.package_name, rp.price, rp.resource_id, res.name AS resource_name
+     FROM rate_packages rp
+     LEFT JOIN resources res ON res.id = rp.resource_id
+     WHERE rp.module_type = $1
+     ORDER BY res.name ASC NULLS FIRST, rp.package_name ASC`,
     [moduleType]
   );
-  return rows.map((r) => ({ id: r.id, packageName: r.package_name, price: Number(r.price) }));
+  return rows.map((r) => ({
+    id: r.id,
+    packageName: r.package_name,
+    price: Number(r.price),
+    resourceId: r.resource_id,
+    resourceName: r.resource_name,
+  }));
 }
 
 // Replaces the whole rate table for a module in one go: upserts every row
 // passed in, deletes any existing row not present in the new list. Simple
 // admin-managed table (per spec recommendation) — no separate add/rename/
-// delete endpoints needed for a handful of package rows.
-export async function setRatePackages(packages: { packageName: string; price: number }[], moduleType: ModuleType): Promise<RatePackage[]> {
+// delete endpoints needed for a handful of package rows. Keyed by
+// (package_name, resource_id) rather than package_name alone — the same
+// name can now exist once per room (Meeting Room/Studio) plus once more as
+// the room-less fallback, each independently upserted/deleted.
+export async function setRatePackages(
+  packages: { packageName: string; price: number; resourceId?: number | null }[],
+  moduleType: ModuleType
+): Promise<RatePackage[]> {
   await ensureSchema();
-  const names = packages.map((p) => p.packageName.trim()).filter(Boolean);
+  const kept: { name: string; resourceId: number | null }[] = [];
   for (const pkg of packages) {
     const name = pkg.packageName.trim();
     if (!name) continue;
+    const resourceId = pkg.resourceId ?? null;
+    kept.push({ name, resourceId });
     await query(
-      `INSERT INTO rate_packages (module_type, package_name, price)
-       VALUES ($1, $2, $3)
-       ON CONFLICT (module_type, package_name) DO UPDATE SET price = EXCLUDED.price, updated_at = now()`,
-      [moduleType, name, pkg.price]
+      `INSERT INTO rate_packages (module_type, package_name, price, resource_id)
+       VALUES ($1, $2, $3, $4)
+       ON CONFLICT (module_type, package_name, (COALESCE(resource_id, 0)))
+       DO UPDATE SET price = EXCLUDED.price, updated_at = now()`,
+      [moduleType, name, pkg.price, resourceId]
     );
   }
-  if (names.length > 0) {
-    await query(`DELETE FROM rate_packages WHERE module_type = $1 AND package_name <> ALL($2::text[])`, [moduleType, names]);
+  if (kept.length > 0) {
+    await query(
+      `DELETE FROM rate_packages
+       WHERE module_type = $1
+         AND NOT EXISTS (
+           SELECT 1 FROM unnest($2::text[], $3::int[]) AS keep(name, rid)
+           WHERE keep.name = rate_packages.package_name
+             AND COALESCE(keep.rid, 0) = COALESCE(rate_packages.resource_id, 0)
+         )`,
+      [moduleType, kept.map((k) => k.name), kept.map((k) => k.resourceId)]
+    );
   } else {
     await query(`DELETE FROM rate_packages WHERE module_type = $1`, [moduleType]);
   }

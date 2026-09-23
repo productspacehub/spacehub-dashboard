@@ -3,7 +3,10 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 
-type Row = { label: string; price: string };
+// resourceId is a string select value: "" means "applies to every room
+// without its own override" (see rate_packages_module_pkg_resource_idx).
+// Only meaningful when the caller passes resourceOptions.
+type Row = { label: string; price: string; resourceId?: string };
 
 const inputStyle = {
   background: "var(--background)",
@@ -26,6 +29,7 @@ export function PriceListEditor({
   toRequestBody,
   backHref,
   backLabel,
+  resourceOptions,
 }: {
   title: string;
   description: string;
@@ -36,6 +40,11 @@ export function PriceListEditor({
   toRequestBody: (rows: Row[]) => unknown;
   backHref: string;
   backLabel: string;
+  // When passed (Meeting Room/Studio only), each row gets a room dropdown
+  // so the same package name can be priced differently per room — "Semua
+  // ruang" (empty selection) is the fallback price for rooms with no
+  // override of their own.
+  resourceOptions?: { id: number; name: string }[];
 }) {
   const [rows, setRows] = useState<Row[]>([]);
   const [loading, setLoading] = useState(true);
@@ -127,6 +136,19 @@ export function PriceListEditor({
                     className="flex-1 rounded-lg border px-3 py-2 text-sm"
                     style={inputStyle}
                   />
+                  {resourceOptions && (
+                    <select
+                      value={row.resourceId ?? ""}
+                      onChange={(e) => updateRow(i, { resourceId: e.target.value })}
+                      className="w-40 rounded-lg border px-3 py-2 text-sm"
+                      style={inputStyle}
+                    >
+                      <option value="">Semua ruang</option>
+                      {resourceOptions.map((r) => (
+                        <option key={r.id} value={r.id}>{r.name}</option>
+                      ))}
+                    </select>
+                  )}
                   <input
                     type="number"
                     min={0}

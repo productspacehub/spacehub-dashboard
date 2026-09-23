@@ -315,6 +315,26 @@ Open [http://localhost:3000](http://localhost:3000) — you'll be redirected to
     package on a booking's create form pre-fills price from this table, but
     price stays editable per-booking (manual overrides/discounts, per the
     spec).
+    - **Per-room pricing** (Meeting Room/Studio only): a rate row optionally
+      carries a `resource_id` — a package name (e.g. "Per Jam") can be
+      priced once per room, plus one more time with no room set at all as
+      the fallback price for any room that doesn't have its own override.
+      The uniqueness rule (one row per module+package+room) lives on
+      `rate_packages_module_pkg_resource_idx`, a `COALESCE(resource_id, 0)`
+      expression index rather than a plain column constraint — Postgres
+      treats plain `NULL` as never equal to itself in a unique constraint,
+      which would let multiple "applies to every room" rows for the same
+      package name pile up uncontrolled. `setRatePackages` mirrors this:
+      upserts and the "delete what's no longer in the list" cleanup are
+      both keyed by (package name, room) pairs, not package name alone, via
+      `unnest($names, $resourceIds)`. On the booking form, picking a room
+      re-prices an already-selected package and vice versa (whichever field
+      changes second wins) — `findRate` always prefers a room-specific row
+      over the room-less fallback when both exist for the same name, so
+      `/bookings/meetingroom/rates` and `/bookings/studio/rates`'s room
+      dropdown never shows two identically-labeled options for one room
+      (only the more specific one, marked "(harga khusus ruang ini)" when
+      it overrides a generic price of the same name).
   - **Addons** (`addons` table, admin-editable at `/bookings/addons`,
     `/bookings/coworking/addons`, `/bookings/meetingroom/addons`, and
     `/bookings/studio/addons` — Padlock for Shared Storage; free water

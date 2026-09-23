@@ -1,12 +1,21 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import Image from "next/image";
 import { signOut, useSession } from "next-auth/react";
 import { PriceListEditor } from "@/components/bookings/PriceListEditor";
-import type { RatePackage } from "@/lib/bookings";
+import type { RatePackage, ResourceRow } from "@/lib/bookings";
 
 export default function MeetingRoomRatesPage() {
   const { data: session } = useSession();
+  const [resources, setResources] = useState<ResourceRow[]>([]);
+
+  useEffect(() => {
+    fetch("/api/resources?module=meeting_room")
+      .then((res) => res.json())
+      .then((body) => setResources(body.resources ?? []))
+      .catch(() => setResources([]));
+  }, []);
 
   return (
     <div className="min-h-screen px-6 py-10 sm:px-10">
@@ -27,16 +36,27 @@ export default function MeetingRoomRatesPage() {
 
         <PriceListEditor
           title="Rate table — Meeting Room"
-          description="Harga per package (mis. Per Jam, Paket Setengah Hari). Minimal booking 3 jam — admin yang menghitung total sesuai durasi saat membuat booking."
+          description='Harga per package (mis. Per Jam, Paket Setengah Hari). Pilih "Semua ruang" untuk tarif umum, atau pilih ruang tertentu untuk harga khusus ruang itu (mengalahkan tarif umum untuk package dengan nama yang sama). Minimal booking 3 jam — admin yang menghitung total sesuai durasi saat membuat booking.'
           emptyHint='Belum ada package. Tambahkan mis. "Per Jam" dengan harganya.'
           labelPlaceholder="Nama package, mis. Per Jam"
           apiPath="/api/rates?module=meeting_room"
           backHref="/bookings/meetingroom"
           backLabel="Kembali ke daftar booking"
-          toRows={(json) => ((json as { packages?: RatePackage[] }).packages ?? []).map((p) => ({ label: p.packageName, price: String(p.price) }))}
+          resourceOptions={resources}
+          toRows={(json) =>
+            ((json as { packages?: RatePackage[] }).packages ?? []).map((p) => ({
+              label: p.packageName,
+              price: String(p.price),
+              resourceId: p.resourceId != null ? String(p.resourceId) : "",
+            }))
+          }
           toRequestBody={(rows) => ({
             module: "meeting_room",
-            packages: rows.map((r) => ({ packageName: r.label.trim(), price: Number(r.price) || 0 })),
+            packages: rows.map((r) => ({
+              packageName: r.label.trim(),
+              price: Number(r.price) || 0,
+              resourceId: r.resourceId ? Number(r.resourceId) : null,
+            })),
           })}
         />
       </div>

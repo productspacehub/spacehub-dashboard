@@ -90,14 +90,17 @@ async function createSchema(): Promise<void> {
       -- Admin-editable per-module rate table (§5.2 of the booking MVP spec) —
       -- ships empty; admin adds package rows (e.g. Daily/Weekly for
       -- shared_storage) with real prices before taking live bookings.
+      -- resource_id (added below, once the resources table exists) lets the
+      -- same package name be priced differently per room for Meeting Room/
+      -- Studio — the uniqueness rule lives on that column's index instead of
+      -- an inline UNIQUE here, since it also depends on resource_id.
       CREATE TABLE IF NOT EXISTS rate_packages (
         id           SERIAL PRIMARY KEY,
         module_type  TEXT NOT NULL DEFAULT 'shared_storage',
         package_name TEXT NOT NULL,
         price        NUMERIC(12,2) NOT NULL DEFAULT 0,
         created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
-        updated_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
-        UNIQUE (module_type, package_name)
+        updated_at   TIMESTAMPTZ NOT NULL DEFAULT now()
       );
 
       -- Admin-editable per-module addon menu (e.g. Co-working's free water
@@ -126,6 +129,24 @@ async function createSchema(): Promise<void> {
         created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
         UNIQUE (module_type, name)
       );
+
+      -- Per-room pricing for rate_packages: a package row can optionally be
+      -- scoped to one room (Meeting Room/Studio only — NULL everywhere
+      -- else, same "unused outside its module" convention as container_id/
+      -- resource_id on bookings). NULL means "applies to every room that
+      -- doesn't have its own override" — a genuine fallback, not just an
+      -- unset field, so it must collide with itself under uniqueness the
+      -- same way a real resource_id would; COALESCE(resource_id, 0) does
+      -- that (0 is never a real resources.id, SERIAL starts at 1).
+      -- On a pre-existing rate_packages table (every database as of this
+      -- migration), the old inline UNIQUE(module_type, package_name) from
+      -- before per-room pricing existed is still there under its default
+      -- name and would block two rooms ever sharing a package name — drop
+      -- it before adding the replacement index.
+      ALTER TABLE rate_packages DROP CONSTRAINT IF EXISTS rate_packages_module_type_package_name_key;
+      ALTER TABLE rate_packages ADD COLUMN IF NOT EXISTS resource_id INTEGER REFERENCES resources(id) ON DELETE SET NULL;
+      CREATE UNIQUE INDEX IF NOT EXISTS rate_packages_module_pkg_resource_idx
+        ON rate_packages (module_type, package_name, COALESCE(resource_id, 0));
 
       -- The core generic booking object (module-agnostic per the spec's §4
       -- shared data model) — shared_storage, co_working, meeting_room, and
