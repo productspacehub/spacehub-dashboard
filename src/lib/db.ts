@@ -150,9 +150,15 @@ async function createSchema(): Promise<void> {
         booking_id   INTEGER NOT NULL REFERENCES bookings(id) ON DELETE CASCADE,
         addon_name   TEXT NOT NULL,
         price        NUMERIC(12,2) NOT NULL,
+        quantity     INTEGER NOT NULL DEFAULT 1,
         created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
       );
       CREATE INDEX IF NOT EXISTS booking_addons_booking_idx ON booking_addons (booking_id);
+      -- ADD COLUMN IF NOT EXISTS rather than relying only on the CREATE TABLE
+      -- above: this table may already exist (e.g. on the staging database)
+      -- from before quantity was added, and CREATE TABLE IF NOT EXISTS is a
+      -- no-op against an existing table — it wouldn't backfill the column.
+      ALTER TABLE booking_addons ADD COLUMN IF NOT EXISTS quantity INTEGER NOT NULL DEFAULT 1;
     `);
     await client.query("COMMIT");
   } catch (err) {

@@ -7,7 +7,7 @@ export default function NewSharedStorageBookingPage() {
       moduleLabel="Shared Storage"
       backHref="/bookings"
       ratesHref="/bookings/rates"
-      showAddons={false}
+      addonsHref="/bookings/addons"
       footnote="Container belum dipilih di sini — container ditetapkan saat barang benar-benar drop-off (dari halaman detail booking)."
     />
   );

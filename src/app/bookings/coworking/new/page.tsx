@@ -7,7 +7,7 @@ export default function NewCoworkingBookingPage() {
       moduleLabel="Co-working"
       backHref="/bookings/coworking"
       ratesHref="/bookings/coworking/rates"
-      showAddons={true}
+      addonsHref="/bookings/coworking/addons"
     />
   );
 }

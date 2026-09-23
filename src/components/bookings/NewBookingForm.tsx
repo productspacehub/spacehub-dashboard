@@ -14,19 +14,23 @@ const inputStyle = {
   color: "var(--text-primary)",
 } as const;
 
+function formatIdr(value: number): string {
+  return new Intl.NumberFormat("id-ID", { style: "currency", currency: "IDR", maximumFractionDigits: 0 }).format(value);
+}
+
 export function NewBookingForm({
   moduleType,
   moduleLabel,
   backHref,
   ratesHref,
-  showAddons,
+  addonsHref,
   footnote,
 }: {
   moduleType: ModuleType;
   moduleLabel: string;
   backHref: string;
   ratesHref: string;
-  showAddons: boolean;
+  addonsHref: string;
   footnote?: string;
 }) {
   const { data: session } = useSession();
@@ -34,7 +38,8 @@ export function NewBookingForm({
 
   const [rates, setRates] = useState<RatePackage[]>([]);
   const [addons, setAddons] = useState<Addon[]>([]);
-  const [selectedAddonNames, setSelectedAddonNames] = useState<Set<string>>(new Set());
+  // addon name -> quantity (presence in the map = selected)
+  const [selectedAddons, setSelectedAddons] = useState<Map<string, number>>(new Map());
   const [customerQuery, setCustomerQuery] = useState("");
   const [customerResults, setCustomerResults] = useState<Customer[]>([]);
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
@@ -56,13 +61,10 @@ export function NewBookingForm({
       .then((res) => res.json())
       .then((body) => setRates(body.packages ?? []))
       .catch(() => setRates([]));
-    if (showAddons) {
-      fetch(`/api/addons?module=${moduleType}`)
-        .then((res) => res.json())
-        .then((body) => setAddons(body.addons ?? []))
-        .catch(() => setAddons([]));
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    fetch(`/api/addons?module=${moduleType}`)
+      .then((res) => res.json())
+      .then((body) => setAddons(body.addons ?? []))
+      .catch(() => setAddons([]));
   }, [moduleType]);
 
   useEffect(() => {
@@ -83,13 +85,24 @@ export function NewBookingForm({
   }
 
   function toggleAddon(name: string) {
-    setSelectedAddonNames((prev) => {
-      const next = new Set(prev);
+    setSelectedAddons((prev) => {
+      const next = new Map(prev);
       if (next.has(name)) next.delete(name);
-      else next.add(name);
+      else next.set(name, 1);
       return next;
     });
   }
+
+  function setAddonQuantity(name: string, quantity: number) {
+    setSelectedAddons((prev) => {
+      const next = new Map(prev);
+      next.set(name, Math.max(1, Math.floor(quantity) || 1));
+      return next;
+    });
+  }
+
+  const addonsTotal = addons.reduce((sum, a) => sum + (selectedAddons.has(a.name) ? a.price * selectedAddons.get(a.name)! : 0), 0);
+  const grandTotal = (Number(price) || 0) + addonsTotal;
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -122,7 +135,9 @@ export function NewBookingForm({
           endDate: endDate || null,
           price: Number(price),
           source,
-          addons: showAddons ? addons.filter((a) => selectedAddonNames.has(a.name)).map((a) => ({ name: a.name, price: a.price })) : undefined,
+          addons: addons
+            .filter((a) => selectedAddons.has(a.name))
+            .map((a) => ({ name: a.name, price: a.price, quantity: selectedAddons.get(a.name)! })),
           notes,
         }),
       });
@@ -268,7 +283,7 @@ export function NewBookingForm({
                 <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="rounded-lg border px-3 py-2 text-sm" style={inputStyle} />
               </label>
               <label className="flex flex-col gap-1 text-xs" style={{ color: "var(--text-secondary)" }}>
-                Harga (IDR) *
+                Harga paket (IDR) *
                 <input type="number" min={0} value={price} onChange={(e) => setPrice(e.target.value)} className="rounded-lg border px-3 py-2 text-sm" style={inputStyle} />
               </label>
             </div>
@@ -278,23 +293,53 @@ export function NewBookingForm({
             </label>
           </section>
 
-          {showAddons && (
-            <section className="rounded-2xl border p-6" style={{ background: "var(--surface-1)", borderColor: "var(--gridline)" }}>
-              <p className="mb-4 text-sm font-semibold" style={{ color: "var(--text-primary)" }}>Addon (opsional)</p>
-              {addons.length === 0 ? (
-                <p className="text-sm" style={{ color: "var(--text-muted)" }}>Belum ada addon terdaftar.</p>
-              ) : (
-                <div className="flex flex-col gap-2">
-                  {addons.map((a) => (
-                    <label key={a.id} className="flex items-center gap-2 text-sm" style={{ color: "var(--text-secondary)" }}>
-                      <input type="checkbox" checked={selectedAddonNames.has(a.name)} onChange={() => toggleAddon(a.name)} />
-                      {a.name} {a.price > 0 && <span style={{ color: "var(--text-muted)" }}>(+Rp{a.price.toLocaleString("id-ID")})</span>}
-                    </label>
-                  ))}
-                </div>
-              )}
-            </section>
-          )}
+          <section className="rounded-2xl border p-6" style={{ background: "var(--surface-1)", borderColor: "var(--gridline)" }}>
+            <p className="mb-4 text-sm font-semibold" style={{ color: "var(--text-primary)" }}>Addon (opsional)</p>
+            {addons.length === 0 ? (
+              <p className="text-sm" style={{ color: "var(--text-muted)" }}>
+                Belum ada addon terdaftar — <Link href={addonsHref} className="hover:underline" style={{ color: "var(--series-1)" }}>atur addon dulu</Link> kalau perlu.
+              </p>
+            ) : (
+              <div className="flex flex-col gap-3">
+                {addons.map((a) => {
+                  const qty = selectedAddons.get(a.name);
+                  return (
+                    <div key={a.id} className="flex items-center gap-3">
+                      <label className="flex flex-1 items-center gap-2 text-sm" style={{ color: "var(--text-secondary)" }}>
+                        <input type="checkbox" checked={qty !== undefined} onChange={() => toggleAddon(a.name)} />
+                        {a.name} {a.price > 0 && <span style={{ color: "var(--text-muted)" }}>(Rp{a.price.toLocaleString("id-ID")}/unit)</span>}
+                      </label>
+                      {qty !== undefined && (
+                        <input
+                          type="number"
+                          min={1}
+                          value={qty}
+                          onChange={(e) => setAddonQuantity(a.name, Number(e.target.value))}
+                          className="w-20 rounded-lg border px-2 py-1 text-sm"
+                          style={inputStyle}
+                        />
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </section>
+
+          <section className="rounded-2xl border p-6" style={{ background: "var(--surface-1)", borderColor: "var(--gridline)" }}>
+            <div className="flex items-center justify-between text-sm" style={{ color: "var(--text-secondary)" }}>
+              <span>Harga paket</span>
+              <span>{formatIdr(Number(price) || 0)}</span>
+            </div>
+            <div className="mt-1 flex items-center justify-between text-sm" style={{ color: "var(--text-secondary)" }}>
+              <span>Addon ({Array.from(selectedAddons.values()).reduce((a, b) => a + b, 0)} unit)</span>
+              <span>{formatIdr(addonsTotal)}</span>
+            </div>
+            <div className="mt-3 flex items-center justify-between border-t pt-3 text-sm font-semibold" style={{ borderColor: "var(--gridline)", color: "var(--text-primary)" }}>
+              <span>Total</span>
+              <span>{formatIdr(grandTotal)}</span>
+            </div>
+          </section>
 
           {footnote && (
             <p className="text-xs" style={{ color: "var(--text-muted)" }}>

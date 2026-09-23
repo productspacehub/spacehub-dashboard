@@ -284,15 +284,24 @@ Open [http://localhost:3000](http://localhost:3000) — you'll be redirected to
     package on a booking's create form pre-fills price from this table, but
     price stays editable per-booking (manual overrides/discounts, per the
     spec).
-  - **Addons** (`addons` table, admin-editable at `/bookings/coworking/addons`
-    — Co-working's free water refill/TV/lockers) follow the same "ships
-    empty, replace the whole list" pattern as rate packages
-    (`PUT /api/addons?module=`). A booking's selected addons
-    (`booking_addons` table) are stored as a name+price *snapshot* at
-    selection time rather than a foreign key — renaming, repricing, or
-    removing an addon from the admin menu later never changes what an
-    already-made booking shows. Not used by Shared Storage — no addon
-    selection UI there, matching the spec's non-goals for that module.
+  - **Addons** (`addons` table, admin-editable at `/bookings/addons` and
+    `/bookings/coworking/addons` — Padlock for Shared Storage; free water
+    refill/TV/lockers for Co-working) follow the same "ships empty, replace
+    the whole list" pattern as rate packages (`PUT /api/addons?module=`),
+    and are available to every module — the spec's "not used by Shared
+    Storage in MVP" note turned out to not hold once a real Shared Storage
+    addon (Padlock) came up, and nothing about the schema was
+    module-specific to begin with. A booking's selected addons
+    (`booking_addons` table, with a `quantity` per line — e.g. 3 padlocks
+    on one booking) are stored as a name+price *snapshot* at selection time
+    rather than a foreign key — renaming, repricing, or removing an addon
+    from the admin menu later never changes what an already-made booking
+    shows. The booking form and detail page show Harga (the base package
+    price, still independently editable for per-booking discounts) and
+    Addon as clearly separate fields/sections, then a computed, read-only
+    Total (Harga + Σ addon price × quantity) — never stored, recalculated
+    from current form state every render, so it can't drift out of sync
+    with whatever's actually selected.
   - Payment is manual in the MVP: admin generates a payment link outside the
     system (e.g. via Xendit) and records it as free text
     (`payment_reference`) against the booking; there's no auto-generation or

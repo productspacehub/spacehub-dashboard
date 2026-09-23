@@ -37,6 +37,7 @@ export type Addon = {
 export type BookingAddon = {
   name: string;
   price: number;
+  quantity: number;
 };
 
 export type ContainerRow = {
@@ -199,19 +200,25 @@ export async function setAddons(addons: { name: string; price: number }[], modul
 }
 
 async function getBookingAddons(bookingId: number): Promise<BookingAddon[]> {
-  const rows = await query<{ addon_name: string; price: string }>(
-    `SELECT addon_name, price FROM booking_addons WHERE booking_id = $1 ORDER BY addon_name ASC`,
+  const rows = await query<{ addon_name: string; price: string; quantity: number }>(
+    `SELECT addon_name, price, quantity FROM booking_addons WHERE booking_id = $1 ORDER BY addon_name ASC`,
     [bookingId]
   );
-  return rows.map((r) => ({ name: r.addon_name, price: Number(r.price) }));
+  return rows.map((r) => ({ name: r.addon_name, price: Number(r.price), quantity: r.quantity }));
 }
 
 async function replaceBookingAddons(bookingId: number, addons: BookingAddon[]): Promise<void> {
   await query(`DELETE FROM booking_addons WHERE booking_id = $1`, [bookingId]);
   for (const addon of addons) {
     const name = addon.name.trim();
-    if (!name) continue;
-    await query(`INSERT INTO booking_addons (booking_id, addon_name, price) VALUES ($1, $2, $3)`, [bookingId, name, addon.price]);
+    const quantity = Math.floor(addon.quantity);
+    if (!name || !Number.isFinite(quantity) || quantity < 1) continue;
+    await query(`INSERT INTO booking_addons (booking_id, addon_name, price, quantity) VALUES ($1, $2, $3, $4)`, [
+      bookingId,
+      name,
+      addon.price,
+      quantity,
+    ]);
   }
 }
 

@@ -106,6 +106,9 @@ export default function BookingsPage() {
             <Link href="/bookings/containers" className="text-sm hover:underline" style={{ color: "var(--text-secondary)" }}>
               Container
             </Link>
+            <Link href="/bookings/addons" className="text-sm hover:underline" style={{ color: "var(--text-secondary)" }}>
+              Addon
+            </Link>
             <Link href="/bookings/rates" className="text-sm hover:underline" style={{ color: "var(--text-secondary)" }}>
               Harga
             </Link>

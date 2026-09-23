@@ -51,7 +51,7 @@ export default function BookingDetailPage() {
     paymentReference: string;
     status: BookingStatus;
     containerId: number | null;
-    addonNames: Set<string>;
+    addonQuantities: Map<string, number>;
     notes: string;
   } | null>(null);
 
@@ -66,7 +66,7 @@ export default function BookingDetailPage() {
       const config = MODULE_CONFIG[loaded.moduleType];
       const [containersBody, addonsBody] = await Promise.all([
         config.requiresContainer ? fetch("/api/containers").then((r) => r.json()) : Promise.resolve({ containers: [] }),
-        loaded.moduleType === "co_working" ? fetch(`/api/addons?module=${loaded.moduleType}`).then((r) => r.json()) : Promise.resolve({ addons: [] }),
+        fetch(`/api/addons?module=${loaded.moduleType}`).then((r) => r.json()),
       ]);
 
       setBooking(loaded);
@@ -88,7 +88,7 @@ export default function BookingDetailPage() {
         paymentReference: loaded.paymentReference ?? "",
         status: loaded.status,
         containerId: loaded.containerId,
-        addonNames: new Set(loaded.addons.map((a) => a.name)),
+        addonQuantities: new Map(loaded.addons.map((a) => [a.name, a.quantity])),
         notes: loaded.notes ?? "",
       });
       setError(null);
@@ -105,13 +105,30 @@ export default function BookingDetailPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
+  function toggleAddon(name: string) {
+    if (!form) return;
+    const next = new Map(form.addonQuantities);
+    if (next.has(name)) next.delete(name);
+    else next.set(name, 1);
+    setForm({ ...form, addonQuantities: next });
+  }
+
+  function setAddonQuantity(name: string, quantity: number) {
+    if (!form) return;
+    const next = new Map(form.addonQuantities);
+    next.set(name, Math.max(1, Math.floor(quantity) || 1));
+    setForm({ ...form, addonQuantities: next });
+  }
+
   async function handleSave(e: React.FormEvent) {
     e.preventDefault();
     if (!form || !booking) return;
     setSaving(true);
     setError(null);
     try {
-      const addons: BookingAddon[] = availableAddons.filter((a) => form.addonNames.has(a.name)).map((a) => ({ name: a.name, price: a.price }));
+      const addons: BookingAddon[] = availableAddons
+        .filter((a) => form.addonQuantities.has(a.name))
+        .map((a) => ({ name: a.name, price: a.price, quantity: form.addonQuantities.get(a.name)! }));
       const res = await fetch(`/api/bookings/${id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
@@ -125,7 +142,7 @@ export default function BookingDetailPage() {
           paymentReference: form.paymentReference || null,
           status: form.status,
           containerId: form.containerId,
-          addons: booking.moduleType === "co_working" ? addons : undefined,
+          addons,
           notes: form.notes,
         }),
       });
@@ -140,6 +157,10 @@ export default function BookingDetailPage() {
   }
 
   const selectableContainers = containers.filter((c) => c.status === "Free" || c.id === form?.containerId);
+  const addonsTotal = form
+    ? availableAddons.reduce((sum, a) => sum + (form.addonQuantities.has(a.name) ? a.price * form.addonQuantities.get(a.name)! : 0), 0)
+    : 0;
+  const grandTotal = form ? (Number(form.price) || 0) + addonsTotal : 0;
 
   return (
     <div className="min-h-screen px-6 py-10 sm:px-10">
@@ -215,7 +236,7 @@ export default function BookingDetailPage() {
                     <input value={form.packageType} onChange={(e) => setForm({ ...form, packageType: e.target.value })} className="rounded-lg border px-3 py-2 text-sm" style={inputStyle} />
                   </label>
                   <label className="flex flex-col gap-1 text-xs" style={{ color: "var(--text-secondary)" }}>
-                    Harga (IDR)
+                    Harga paket (IDR)
                     <input type="number" min={0} value={form.price} onChange={(e) => setForm({ ...form, price: e.target.value })} className="rounded-lg border px-3 py-2 text-sm" style={inputStyle} />
                     {Number(form.price) > 0 && <span style={{ color: "var(--text-muted)" }}>{formatIdr(Number(form.price))}</span>}
                   </label>
@@ -294,32 +315,51 @@ export default function BookingDetailPage() {
                 )}
               </section>
 
-              {booking.moduleType === "co_working" && (
-                <section className="rounded-2xl border p-6" style={{ background: "var(--surface-1)", borderColor: "var(--gridline)" }}>
-                  <p className="mb-4 text-sm font-semibold" style={{ color: "var(--text-primary)" }}>Addon</p>
-                  {availableAddons.length === 0 ? (
-                    <p className="text-sm" style={{ color: "var(--text-muted)" }}>Belum ada addon terdaftar.</p>
-                  ) : (
-                    <div className="flex flex-col gap-2">
-                      {availableAddons.map((a) => (
-                        <label key={a.id} className="flex items-center gap-2 text-sm" style={{ color: "var(--text-secondary)" }}>
-                          <input
-                            type="checkbox"
-                            checked={form.addonNames.has(a.name)}
-                            onChange={() => {
-                              const next = new Set(form.addonNames);
-                              if (next.has(a.name)) next.delete(a.name);
-                              else next.add(a.name);
-                              setForm({ ...form, addonNames: next });
-                            }}
-                          />
-                          {a.name} {a.price > 0 && <span style={{ color: "var(--text-muted)" }}>(+Rp{a.price.toLocaleString("id-ID")})</span>}
-                        </label>
-                      ))}
-                    </div>
-                  )}
-                </section>
-              )}
+              <section className="rounded-2xl border p-6" style={{ background: "var(--surface-1)", borderColor: "var(--gridline)" }}>
+                <p className="mb-4 text-sm font-semibold" style={{ color: "var(--text-primary)" }}>Addon</p>
+                {availableAddons.length === 0 ? (
+                  <p className="text-sm" style={{ color: "var(--text-muted)" }}>Belum ada addon terdaftar.</p>
+                ) : (
+                  <div className="flex flex-col gap-3">
+                    {availableAddons.map((a) => {
+                      const qty = form.addonQuantities.get(a.name);
+                      return (
+                        <div key={a.id} className="flex items-center gap-3">
+                          <label className="flex flex-1 items-center gap-2 text-sm" style={{ color: "var(--text-secondary)" }}>
+                            <input type="checkbox" checked={qty !== undefined} onChange={() => toggleAddon(a.name)} />
+                            {a.name} {a.price > 0 && <span style={{ color: "var(--text-muted)" }}>(Rp{a.price.toLocaleString("id-ID")}/unit)</span>}
+                          </label>
+                          {qty !== undefined && (
+                            <input
+                              type="number"
+                              min={1}
+                              value={qty}
+                              onChange={(e) => setAddonQuantity(a.name, Number(e.target.value))}
+                              className="w-20 rounded-lg border px-2 py-1 text-sm"
+                              style={inputStyle}
+                            />
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </section>
+
+              <section className="rounded-2xl border p-6" style={{ background: "var(--surface-1)", borderColor: "var(--gridline)" }}>
+                <div className="flex items-center justify-between text-sm" style={{ color: "var(--text-secondary)" }}>
+                  <span>Harga paket</span>
+                  <span>{formatIdr(Number(form.price) || 0)}</span>
+                </div>
+                <div className="mt-1 flex items-center justify-between text-sm" style={{ color: "var(--text-secondary)" }}>
+                  <span>Addon</span>
+                  <span>{formatIdr(addonsTotal)}</span>
+                </div>
+                <div className="mt-3 flex items-center justify-between border-t pt-3 text-sm font-semibold" style={{ borderColor: "var(--gridline)", color: "var(--text-primary)" }}>
+                  <span>Total</span>
+                  <span>{formatIdr(grandTotal)}</span>
+                </div>
+              </section>
 
               <button type="submit" disabled={saving} className="self-start rounded-full px-5 py-2.5 text-sm font-medium disabled:opacity-50" style={{ background: "var(--series-1)", color: "var(--background)" }}>
                 {saving ? "Menyimpan…" : "Simpan perubahan"}
