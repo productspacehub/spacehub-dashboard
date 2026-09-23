@@ -128,19 +128,25 @@ export function PriceListEditor({
             )}
             <div className="flex flex-col gap-3">
               {rows.map((row, i) => (
-                <div key={i} className="flex items-center gap-3">
+                // flex-wrap so a narrow container (small window, mobile) wraps
+                // fields onto their own line instead of forcing them to shrink
+                // below their content or overflow past the card's border —
+                // shrink-0 on the fixed-width fields means the wrap decision
+                // falls on the flexible label input, not on squeezing a select/
+                // number input illegibly narrow.
+                <div key={i} className="flex flex-wrap items-center gap-3">
                   <input
                     value={row.label}
                     onChange={(e) => updateRow(i, { label: e.target.value })}
                     placeholder={labelPlaceholder}
-                    className="flex-1 rounded-lg border px-3 py-2 text-sm"
+                    className="min-w-[160px] flex-1 rounded-lg border px-3 py-2 text-sm"
                     style={inputStyle}
                   />
                   {resourceOptions && (
                     <select
                       value={row.resourceId ?? ""}
                       onChange={(e) => updateRow(i, { resourceId: e.target.value })}
-                      className="w-40 rounded-lg border px-3 py-2 text-sm"
+                      className="w-40 shrink-0 rounded-lg border px-3 py-2 text-sm"
                       style={inputStyle}
                     >
                       <option value="">Semua ruang</option>
@@ -155,10 +161,10 @@ export function PriceListEditor({
                     value={row.price}
                     onChange={(e) => updateRow(i, { price: e.target.value })}
                     placeholder="Harga (IDR)"
-                    className="w-40 rounded-lg border px-3 py-2 text-sm"
+                    className="w-40 shrink-0 rounded-lg border px-3 py-2 text-sm"
                     style={inputStyle}
                   />
-                  <button type="button" onClick={() => removeRow(i)} className="text-sm hover:underline" style={{ color: "var(--status-critical)" }}>
+                  <button type="button" onClick={() => removeRow(i)} className="shrink-0 text-sm hover:underline" style={{ color: "var(--status-critical)" }}>
                     Hapus
                   </button>
                 </div>
