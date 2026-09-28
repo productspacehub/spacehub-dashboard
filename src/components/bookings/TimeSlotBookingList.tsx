@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { signOut, useSession } from "next-auth/react";
-import type { BookingCounts, BookingListItem } from "@/lib/bookings";
+import type { BookingCounts, BookingListItem, ModuleType } from "@/lib/bookings";
 import { BOOKING_STATUSES, type BookingStatus } from "@/lib/bookingConstants";
 import { ModuleTabs } from "@/components/bookings/ModuleTabs";
 
@@ -51,7 +51,25 @@ function OverdueBadge() {
   );
 }
 
-export default function BookingsPage() {
+// Shared list page for the two calendar-based modules (Meeting Room, Studio,
+// §7.2) — identical to each other in every field (Ruang, Jam, no Container),
+// only differing in moduleType/labels/hrefs, so one component serves both
+// instead of duplicating the whole page.
+export function TimeSlotBookingList({
+  moduleType,
+  moduleLabel,
+  newHref,
+  resourcesHref,
+  addonsHref,
+  ratesHref,
+}: {
+  moduleType: ModuleType;
+  moduleLabel: string;
+  newHref: string;
+  resourcesHref: string;
+  addonsHref: string;
+  ratesHref: string;
+}) {
   const { data: session } = useSession();
   const [data, setData] = useState<BookingsResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -60,29 +78,32 @@ export default function BookingsPage() {
   const [q, setQ] = useState("");
   const abortRef = useRef<AbortController | null>(null);
 
-  const load = useCallback(async (statusValue: BookingStatus | "all", qValue: string) => {
-    abortRef.current?.abort();
-    const controller = new AbortController();
-    abortRef.current = controller;
-    setLoading(true);
+  const load = useCallback(
+    async (statusValue: BookingStatus | "all", qValue: string) => {
+      abortRef.current?.abort();
+      const controller = new AbortController();
+      abortRef.current = controller;
+      setLoading(true);
 
-    try {
-      const params = new URLSearchParams();
-      params.set("module", "shared_storage");
-      if (statusValue !== "all") params.set("status", statusValue);
-      if (qValue.trim()) params.set("q", qValue.trim());
-      const res = await fetch(`/api/bookings?${params.toString()}`, { signal: controller.signal });
-      const body = await res.json();
-      if (!res.ok) throw new Error(body?.error ?? `Request failed with status ${res.status}`);
-      setData(body as BookingsResponse);
-      setError(null);
-    } catch (err) {
-      if (err instanceof DOMException && err.name === "AbortError") return;
-      setError(err instanceof Error ? err.message : "Failed to load bookings");
-    } finally {
-      if (abortRef.current === controller) setLoading(false);
-    }
-  }, []);
+      try {
+        const params = new URLSearchParams();
+        params.set("module", moduleType);
+        if (statusValue !== "all") params.set("status", statusValue);
+        if (qValue.trim()) params.set("q", qValue.trim());
+        const res = await fetch(`/api/bookings?${params.toString()}`, { signal: controller.signal });
+        const body = await res.json();
+        if (!res.ok) throw new Error(body?.error ?? `Request failed with status ${res.status}`);
+        setData(body as BookingsResponse);
+        setError(null);
+      } catch (err) {
+        if (err instanceof DOMException && err.name === "AbortError") return;
+        setError(err instanceof Error ? err.message : "Failed to load bookings");
+      } finally {
+        if (abortRef.current === controller) setLoading(false);
+      }
+    },
+    [moduleType]
+  );
 
   useEffect(() => {
     const id = setTimeout(() => load(status, q), q ? 300 : 0);
@@ -99,17 +120,17 @@ export default function BookingsPage() {
             <Image src="/spacehub-logo.webp" alt="SpaceHub" width={121} height={36} priority />
             <span className="hidden h-6 w-px sm:block" style={{ background: "var(--gridline)" }} />
             <h1 className="hidden text-sm font-medium sm:block" style={{ color: "var(--text-secondary)" }}>
-              Bookings — Shared Storage
+              Bookings — {moduleLabel}
             </h1>
           </div>
           <div className="flex items-baseline gap-4">
-            <Link href="/bookings/containers" className="text-sm hover:underline" style={{ color: "var(--text-secondary)" }}>
-              Container
+            <Link href={resourcesHref} className="text-sm hover:underline" style={{ color: "var(--text-secondary)" }}>
+              Ruang
             </Link>
-            <Link href="/bookings/addons" className="text-sm hover:underline" style={{ color: "var(--text-secondary)" }}>
+            <Link href={addonsHref} className="text-sm hover:underline" style={{ color: "var(--text-secondary)" }}>
               Addon
             </Link>
-            <Link href="/bookings/rates" className="text-sm hover:underline" style={{ color: "var(--text-secondary)" }}>
+            <Link href={ratesHref} className="text-sm hover:underline" style={{ color: "var(--text-secondary)" }}>
               Harga
             </Link>
             {session?.user?.email && (
@@ -117,11 +138,7 @@ export default function BookingsPage() {
                 {session.user.email}
               </span>
             )}
-            <button
-              onClick={() => signOut({ redirectTo: "/login" })}
-              className="text-sm hover:underline"
-              style={{ color: "var(--text-secondary)" }}
-            >
+            <button onClick={() => signOut({ redirectTo: "/login" })} className="text-sm hover:underline" style={{ color: "var(--text-secondary)" }}>
               Sign out
             </button>
           </div>
@@ -131,26 +148,17 @@ export default function BookingsPage() {
           ← Back to summary
         </Link>
 
-        <ModuleTabs active="shared_storage" />
+        <ModuleTabs active={moduleType} />
 
         <div className="mb-6 flex items-center justify-between gap-4">
-          <p className="text-sm" style={{ color: "var(--text-secondary)" }}>
-            {totalCount} booking total
-          </p>
-          <Link
-            href="/bookings/new"
-            className="rounded-full px-4 py-2 text-sm font-medium"
-            style={{ background: "var(--series-1)", color: "var(--background)" }}
-          >
+          <p className="text-sm" style={{ color: "var(--text-secondary)" }}>{totalCount} booking total</p>
+          <Link href={newHref} className="rounded-full px-4 py-2 text-sm font-medium" style={{ background: "var(--series-1)", color: "var(--background)" }}>
             + Booking baru
           </Link>
         </div>
 
         {error && (
-          <div
-            className="mb-6 rounded-lg border px-4 py-3 text-sm"
-            style={{ borderColor: "var(--status-critical)", color: "var(--status-critical)", background: "var(--surface-1)" }}
-          >
+          <div className="mb-6 rounded-lg border px-4 py-3 text-sm" style={{ borderColor: "var(--status-critical)", color: "var(--status-critical)", background: "var(--surface-1)" }}>
             {error}
           </div>
         )}
@@ -203,20 +211,18 @@ export default function BookingsPage() {
                   <tr style={{ borderBottom: "1px solid var(--gridline)" }}>
                     <th className="px-4 py-3 font-medium" style={{ color: "var(--text-secondary)" }}>Customer</th>
                     <th className="px-4 py-3 font-medium" style={{ color: "var(--text-secondary)" }}>Package</th>
-                    <th className="px-4 py-3 font-medium" style={{ color: "var(--text-secondary)" }}>Mulai</th>
-                    <th className="px-4 py-3 font-medium" style={{ color: "var(--text-secondary)" }}>Selesai</th>
+                    <th className="px-4 py-3 font-medium" style={{ color: "var(--text-secondary)" }}>Tanggal</th>
+                    <th className="px-4 py-3 font-medium" style={{ color: "var(--text-secondary)" }}>Jam</th>
+                    <th className="px-4 py-3 font-medium" style={{ color: "var(--text-secondary)" }}>Ruang</th>
                     <th className="px-4 py-3 text-right font-medium" style={{ color: "var(--text-secondary)" }}>Total</th>
                     <th className="px-4 py-3 font-medium" style={{ color: "var(--text-secondary)" }}>Pembayaran</th>
                     <th className="px-4 py-3 font-medium" style={{ color: "var(--text-secondary)" }}>Status</th>
-                    <th className="px-4 py-3 font-medium" style={{ color: "var(--text-secondary)" }}>Container</th>
                   </tr>
                 </thead>
                 <tbody>
                   {data.bookings.length === 0 && (
                     <tr>
-                      <td colSpan={8} className="px-4 py-8 text-center" style={{ color: "var(--text-muted)" }}>
-                        Belum ada booking.
-                      </td>
+                      <td colSpan={8} className="px-4 py-8 text-center" style={{ color: "var(--text-muted)" }}>Belum ada booking.</td>
                     </tr>
                   )}
                   {data.bookings.map((b) => (
@@ -229,13 +235,13 @@ export default function BookingsPage() {
                       </td>
                       <td className="px-4 py-3" style={{ color: "var(--text-secondary)" }}>{b.packageType}</td>
                       <td className="px-4 py-3" style={{ color: "var(--text-secondary)" }}>{formatDate(b.startDate)}</td>
-                      <td className="px-4 py-3" style={{ color: "var(--text-secondary)" }}>{formatDate(b.endDate)}</td>
+                      <td className="px-4 py-3" style={{ color: "var(--text-secondary)" }}>
+                        {b.startTime && b.endTime ? `${b.startTime}–${b.endTime}` : "–"}
+                      </td>
+                      <td className="px-4 py-3" style={{ color: "var(--text-secondary)" }}>{b.resourceName ?? "–"}</td>
                       <td className="px-4 py-3 text-right font-medium" style={{ color: "var(--text-primary)" }}>{formatIdr(b.price + b.addonsTotal)}</td>
                       <td className="px-4 py-3">
-                        <span
-                          className="text-xs font-medium"
-                          style={{ color: b.paymentStatus === "Paid" ? "var(--status-good)" : "var(--status-warning)" }}
-                        >
+                        <span className="text-xs font-medium" style={{ color: b.paymentStatus === "Paid" ? "var(--status-good)" : "var(--status-warning)" }}>
                           {b.paymentStatus}
                         </span>
                       </td>
@@ -245,7 +251,6 @@ export default function BookingsPage() {
                           {b.isOverdue && <OverdueBadge />}
                         </div>
                       </td>
-                      <td className="px-4 py-3" style={{ color: "var(--text-secondary)" }}>{b.containerLabel ?? "–"}</td>
                     </tr>
                   ))}
                 </tbody>

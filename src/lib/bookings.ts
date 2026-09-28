@@ -1,9 +1,9 @@
 import { ensureSchema, query } from "./db";
 import { jakartaToday } from "./snapshots";
-import { ACTIVE_MODULE_TYPE, type BookingSource, type BookingStatus, type PaymentStatus } from "./bookingConstants";
+import { MODULE_CONFIG, type BookingSource, type BookingStatus, type ModuleType, type PaymentStatus } from "./bookingConstants";
 
-export { ACTIVE_MODULE_TYPE, BOOKING_STATUSES, PAYMENT_STATUSES, BOOKING_SOURCES } from "./bookingConstants";
-export type { BookingStatus, PaymentStatus, BookingSource } from "./bookingConstants";
+export { MODULE_TYPES, MODULE_LABELS, MODULE_CONFIG, BOOKING_STATUSES, PAYMENT_STATUSES, BOOKING_SOURCES } from "./bookingConstants";
+export type { ModuleType, BookingStatus, PaymentStatus, BookingSource } from "./bookingConstants";
 
 export type Customer = {
   id: number;
@@ -26,6 +26,23 @@ export type RatePackage = {
   id: number;
   packageName: string;
   price: number;
+  // Only meaningful for Meeting Room/Studio — null means this price applies
+  // to every room that doesn't have its own override for the same package
+  // name (see rate_packages_module_pkg_resource_idx in src/lib/db.ts).
+  resourceId: number | null;
+  resourceName: string | null;
+};
+
+export type Addon = {
+  id: number;
+  name: string;
+  price: number;
+};
+
+export type BookingAddon = {
+  name: string;
+  price: number;
+  quantity: number;
 };
 
 export type ContainerRow = {
@@ -36,14 +53,31 @@ export type ContainerRow = {
   currentCustomerName: string | null;
 };
 
+export type ResourceRow = {
+  id: number;
+  name: string;
+};
+
 export type BookingListItem = {
   id: number;
+  moduleType: ModuleType;
   customerName: string;
   customerPhone: string;
   packageType: string;
   startDate: string;
   endDate: string | null;
+  // Only set for modules with usesTimeSlots (Meeting Room / Studio) — "HH:MM"
+  // on the Jakarta wall-clock, same day as startDate (no overnight spans).
+  startTime: string | null;
+  endTime: string | null;
+  resourceId: number | null;
+  resourceName: string | null;
   price: number;
+  // Sum of price * quantity across the booking's selected addons — computed
+  // via SQL aggregate at read time, not stored, so it can't drift out of
+  // sync with booking_addons. `price` stays the base package price alone;
+  // price + addonsTotal is what the UI shows as "Total".
+  addonsTotal: number;
   status: BookingStatus;
   paymentStatus: PaymentStatus;
   containerLabel: string | null;
@@ -62,6 +96,7 @@ export type BookingDetail = BookingListItem & {
   source: BookingSource;
   createdBy: string | null;
   notes: string | null;
+  addons: BookingAddon[];
 };
 
 export type BookingCounts = Record<BookingStatus, number>;
@@ -115,44 +150,128 @@ function mapCustomer(row: CustomerRow): Customer {
 
 // --- Rate packages (admin-editable, §5.2) -------------------------------
 
-export async function getRatePackages(moduleType: string = ACTIVE_MODULE_TYPE): Promise<RatePackage[]> {
+export async function getRatePackages(moduleType: ModuleType): Promise<RatePackage[]> {
   await ensureSchema();
-  const rows = await query<{ id: number; package_name: string; price: string }>(
-    `SELECT id, package_name, price FROM rate_packages WHERE module_type = $1 ORDER BY package_name ASC`,
+  const rows = await query<{ id: number; package_name: string; price: string; resource_id: number | null; resource_name: string | null }>(
+    `SELECT rp.id, rp.package_name, rp.price, rp.resource_id, res.name AS resource_name
+     FROM rate_packages rp
+     LEFT JOIN resources res ON res.id = rp.resource_id
+     WHERE rp.module_type = $1
+     ORDER BY res.name ASC NULLS FIRST, rp.package_name ASC`,
     [moduleType]
   );
-  return rows.map((r) => ({ id: r.id, packageName: r.package_name, price: Number(r.price) }));
+  return rows.map((r) => ({
+    id: r.id,
+    packageName: r.package_name,
+    price: Number(r.price),
+    resourceId: r.resource_id,
+    resourceName: r.resource_name,
+  }));
 }
 
 // Replaces the whole rate table for a module in one go: upserts every row
 // passed in, deletes any existing row not present in the new list. Simple
 // admin-managed table (per spec recommendation) — no separate add/rename/
-// delete endpoints needed for a handful of package rows.
+// delete endpoints needed for a handful of package rows. Keyed by
+// (package_name, resource_id) rather than package_name alone — the same
+// name can now exist once per room (Meeting Room/Studio) plus once more as
+// the room-less fallback, each independently upserted/deleted.
 export async function setRatePackages(
-  packages: { packageName: string; price: number }[],
-  moduleType: string = ACTIVE_MODULE_TYPE
+  packages: { packageName: string; price: number; resourceId?: number | null }[],
+  moduleType: ModuleType
 ): Promise<RatePackage[]> {
   await ensureSchema();
-  const names = packages.map((p) => p.packageName.trim()).filter(Boolean);
+  const kept: { name: string; resourceId: number | null }[] = [];
   for (const pkg of packages) {
     const name = pkg.packageName.trim();
     if (!name) continue;
+    const resourceId = pkg.resourceId ?? null;
+    kept.push({ name, resourceId });
     await query(
-      `INSERT INTO rate_packages (module_type, package_name, price)
-       VALUES ($1, $2, $3)
-       ON CONFLICT (module_type, package_name) DO UPDATE SET price = EXCLUDED.price, updated_at = now()`,
-      [moduleType, name, pkg.price]
+      `INSERT INTO rate_packages (module_type, package_name, price, resource_id)
+       VALUES ($1, $2, $3, $4)
+       ON CONFLICT (module_type, package_name, (COALESCE(resource_id, 0)))
+       DO UPDATE SET price = EXCLUDED.price, updated_at = now()`,
+      [moduleType, name, pkg.price, resourceId]
     );
   }
-  if (names.length > 0) {
-    await query(`DELETE FROM rate_packages WHERE module_type = $1 AND package_name <> ALL($2::text[])`, [moduleType, names]);
+  if (kept.length > 0) {
+    await query(
+      `DELETE FROM rate_packages
+       WHERE module_type = $1
+         AND NOT EXISTS (
+           SELECT 1 FROM unnest($2::text[], $3::int[]) AS keep(name, rid)
+           WHERE keep.name = rate_packages.package_name
+             AND COALESCE(keep.rid, 0) = COALESCE(rate_packages.resource_id, 0)
+         )`,
+      [moduleType, kept.map((k) => k.name), kept.map((k) => k.resourceId)]
+    );
   } else {
     await query(`DELETE FROM rate_packages WHERE module_type = $1`, [moduleType]);
   }
   return getRatePackages(moduleType);
 }
 
-// --- Containers ----------------------------------------------------------
+// --- Addons (admin-editable menu, e.g. Co-working's water/TV/lockers) ------
+// Same shape and same "replace the whole list" pattern as rate packages —
+// booking_addons below stores a name+price snapshot per selection, not a
+// foreign key, so renaming/repricing/removing an addon here never changes
+// what an already-made booking shows.
+
+export async function getAddons(moduleType: ModuleType): Promise<Addon[]> {
+  await ensureSchema();
+  const rows = await query<{ id: number; name: string; price: string }>(
+    `SELECT id, name, price FROM addons WHERE module_type = $1 ORDER BY name ASC`,
+    [moduleType]
+  );
+  return rows.map((r) => ({ id: r.id, name: r.name, price: Number(r.price) }));
+}
+
+export async function setAddons(addons: { name: string; price: number }[], moduleType: ModuleType): Promise<Addon[]> {
+  await ensureSchema();
+  const names = addons.map((a) => a.name.trim()).filter(Boolean);
+  for (const addon of addons) {
+    const name = addon.name.trim();
+    if (!name) continue;
+    await query(
+      `INSERT INTO addons (module_type, name, price)
+       VALUES ($1, $2, $3)
+       ON CONFLICT (module_type, name) DO UPDATE SET price = EXCLUDED.price, updated_at = now()`,
+      [moduleType, name, addon.price]
+    );
+  }
+  if (names.length > 0) {
+    await query(`DELETE FROM addons WHERE module_type = $1 AND name <> ALL($2::text[])`, [moduleType, names]);
+  } else {
+    await query(`DELETE FROM addons WHERE module_type = $1`, [moduleType]);
+  }
+  return getAddons(moduleType);
+}
+
+async function getBookingAddons(bookingId: number): Promise<BookingAddon[]> {
+  const rows = await query<{ addon_name: string; price: string; quantity: number }>(
+    `SELECT addon_name, price, quantity FROM booking_addons WHERE booking_id = $1 ORDER BY addon_name ASC`,
+    [bookingId]
+  );
+  return rows.map((r) => ({ name: r.addon_name, price: Number(r.price), quantity: r.quantity }));
+}
+
+async function replaceBookingAddons(bookingId: number, addons: BookingAddon[]): Promise<void> {
+  await query(`DELETE FROM booking_addons WHERE booking_id = $1`, [bookingId]);
+  for (const addon of addons) {
+    const name = addon.name.trim();
+    const quantity = Math.floor(addon.quantity);
+    if (!name || !Number.isFinite(quantity) || quantity < 1) continue;
+    await query(`INSERT INTO booking_addons (booking_id, addon_name, price, quantity) VALUES ($1, $2, $3, $4)`, [
+      bookingId,
+      name,
+      addon.price,
+      quantity,
+    ]);
+  }
+}
+
+// --- Containers (shared_storage only — no per-unit resource for other modules) --
 
 // A container's status is derived, not stored: "Assigned" iff some booking
 // with status = Active currently references it. This keeps container state
@@ -204,42 +323,134 @@ export async function createContainer(label: string): Promise<ContainerRow> {
   return rows[0];
 }
 
+// --- Resources (meeting_room / studio — bookable rooms, §7.2) -------------
+
+export async function listResources(moduleType: ModuleType): Promise<ResourceRow[]> {
+  await ensureSchema();
+  return query<ResourceRow>(`SELECT id, name FROM resources WHERE module_type = $1 ORDER BY name ASC`, [moduleType]);
+}
+
+export async function createResource(moduleType: ModuleType, name: string): Promise<ResourceRow> {
+  await ensureSchema();
+  const trimmed = name.trim();
+  if (!trimmed) throw new Error("Nama ruang wajib diisi");
+  const rows = await query<ResourceRow>(`INSERT INTO resources (module_type, name) VALUES ($1, $2) RETURNING id, name`, [
+    moduleType,
+    trimmed,
+  ]);
+  return rows[0];
+}
+
+// A room can serve many different bookings across a day, just not
+// overlapping ones — so unlike Container, there's no single current
+// Free/Assigned state to check. Availability is always this time-range
+// query instead: does any *other* non-cancelled booking on this resource,
+// same day, overlap the requested start_time..end_time. Cancelled/No-Show
+// bookings never block a slot; every other status does (including Pending
+// Payment — the slot is provisionally held from the moment it's booked, not
+// just once paid, so two admins can't both promise the same slot to
+// different customers while one payment is still pending).
+// "HH:MM" -> hours, for enforcing MODULE_CONFIG's minBookingHours.
+function hoursBetween(startTime: string, endTime: string): number {
+  const [sh, sm] = startTime.split(":").map(Number);
+  const [eh, em] = endTime.split(":").map(Number);
+  return (eh * 60 + em - (sh * 60 + sm)) / 60;
+}
+
+export async function checkResourceConflict(
+  resourceId: number,
+  date: string,
+  startTime: string,
+  endTime: string,
+  excludeBookingId?: number
+): Promise<boolean> {
+  await ensureSchema();
+  const params: unknown[] = [resourceId, date, endTime, startTime];
+  let sql = `SELECT 1 FROM bookings
+             WHERE resource_id = $1 AND start_date = $2
+               AND status NOT IN ('Cancelled', 'No-Show')
+               AND start_time < $3 AND end_time > $4`;
+  if (excludeBookingId !== undefined) {
+    params.push(excludeBookingId);
+    sql += ` AND id <> $${params.length}`;
+  }
+  const rows = await query(`${sql} LIMIT 1`, params);
+  return rows.length > 0;
+}
+
+// --- Headcount (co_working — availability is informational only in the MVP) --
+
+// Counts bookings whose date range covers today, regardless of whether an
+// end_date was given (an open-ended booking still counts as occupying a
+// seat today). Informational only, per the module's spec — nothing here
+// blocks creating another booking even if this number looks "full".
+export async function getActiveHeadcountToday(moduleType: ModuleType): Promise<number> {
+  await ensureSchema();
+  const rows = await query<{ count: string }>(
+    `SELECT COUNT(*) AS count FROM bookings
+     WHERE module_type = $1 AND status = 'Active'
+       AND start_date <= CURRENT_DATE
+       AND (end_date IS NULL OR end_date >= CURRENT_DATE)`,
+    [moduleType]
+  );
+  return Number(rows[0].count);
+}
+
 // --- Bookings --------------------------------------------------------------
 
 const LIST_SELECT = `
-  SELECT b.id, cu.name AS customer_name, cu.phone AS customer_phone, b.package_type,
+  SELECT b.id, b.module_type, cu.name AS customer_name, cu.phone AS customer_phone, b.package_type,
          to_char(b.start_date, 'YYYY-MM-DD') AS start_date,
          to_char(b.end_date, 'YYYY-MM-DD') AS end_date,
+         to_char(b.start_time, 'HH24:MI') AS start_time,
+         to_char(b.end_time, 'HH24:MI') AS end_time,
+         b.resource_id, res.name AS resource_name,
          b.price, b.status, b.payment_status, co.label AS container_label,
-         b.created_at
+         b.created_at, COALESCE(addon_totals.total, 0) AS addons_total
   FROM bookings b
   JOIN customers cu ON cu.id = b.customer_id
   LEFT JOIN containers co ON co.id = b.container_id
+  LEFT JOIN resources res ON res.id = b.resource_id
+  LEFT JOIN (
+    SELECT booking_id, SUM(price * quantity) AS total FROM booking_addons GROUP BY booking_id
+  ) addon_totals ON addon_totals.booking_id = b.id
 `;
 
 type ListRow = {
   id: number;
+  module_type: ModuleType;
   customer_name: string;
   customer_phone: string;
   package_type: string;
   start_date: string;
   end_date: string | null;
+  start_time: string | null;
+  end_time: string | null;
+  resource_id: number | null;
+  resource_name: string | null;
   price: string;
   status: BookingStatus;
   payment_status: PaymentStatus;
   container_label: string | null;
   created_at: string;
+  addons_total: string;
 };
 
 function mapListRow(r: ListRow, today: string): BookingListItem {
   return {
     id: r.id,
+    moduleType: r.module_type,
     customerName: r.customer_name,
     customerPhone: r.customer_phone,
     packageType: r.package_type,
     startDate: r.start_date,
     endDate: r.end_date,
+    startTime: r.start_time,
+    endTime: r.end_time,
+    resourceId: r.resource_id,
+    resourceName: r.resource_name,
     price: Number(r.price),
+    addonsTotal: Number(r.addons_total),
     status: r.status,
     paymentStatus: r.payment_status,
     containerLabel: r.container_label,
@@ -249,12 +460,13 @@ function mapListRow(r: ListRow, today: string): BookingListItem {
 }
 
 export async function listBookings(filters: {
+  moduleType: ModuleType;
   status?: BookingStatus;
   q?: string;
 }): Promise<{ bookings: BookingListItem[]; counts: BookingCounts }> {
   await ensureSchema();
   const conditions = [`b.module_type = $1`];
-  const params: unknown[] = [ACTIVE_MODULE_TYPE];
+  const params: unknown[] = [filters.moduleType];
 
   if (filters.status) {
     params.push(filters.status);
@@ -269,7 +481,7 @@ export async function listBookings(filters: {
 
   const countRows = await query<{ status: BookingStatus; count: string }>(
     `SELECT status, COUNT(*) AS count FROM bookings WHERE module_type = $1 GROUP BY status`,
-    [ACTIVE_MODULE_TYPE]
+    [filters.moduleType]
   );
   const counts = emptyCounts();
   for (const row of countRows) counts[row.status] = Number(row.count);
@@ -278,6 +490,8 @@ export async function listBookings(filters: {
   return { bookings: rows.map((r) => mapListRow(r, today)), counts };
 }
 
+// Not module-scoped: booking ids are unique across the whole table, and the
+// detail page adapts its own rendering based on the returned moduleType.
 export async function getBooking(id: number): Promise<BookingDetail | null> {
   await ensureSchema();
   const rows = await query<
@@ -293,39 +507,52 @@ export async function getBooking(id: number): Promise<BookingDetail | null> {
       cu_notes: string | null;
     }
   >(
-    `SELECT b.id, cu.name AS customer_name, cu.phone AS customer_phone, b.package_type,
+    `SELECT b.id, b.module_type, cu.name AS customer_name, cu.phone AS customer_phone, b.package_type,
             to_char(b.start_date, 'YYYY-MM-DD') AS start_date,
             to_char(b.end_date, 'YYYY-MM-DD') AS end_date,
+            to_char(b.start_time, 'HH24:MI') AS start_time,
+            to_char(b.end_time, 'HH24:MI') AS end_time,
+            b.resource_id, res.name AS resource_name,
             b.price, b.status, b.payment_status, co.label AS container_label,
             b.created_at, b.container_id, b.payment_reference, b.source, b.created_by, b.notes,
             cu.id AS cu_id, cu.email AS cu_email, cu.id_number AS cu_id_number, cu.notes AS cu_notes
      FROM bookings b
      JOIN customers cu ON cu.id = b.customer_id
      LEFT JOIN containers co ON co.id = b.container_id
-     WHERE b.id = $1 AND b.module_type = $2`,
-    [id, ACTIVE_MODULE_TYPE]
+     LEFT JOIN resources res ON res.id = b.resource_id
+     WHERE b.id = $1`,
+    [id]
   );
   if (rows.length === 0) return null;
   const r = rows[0];
+  const addons = await getBookingAddons(id);
+  const addonsTotal = addons.reduce((sum, a) => sum + a.price * a.quantity, 0);
   return {
     ...mapListRow(r, jakartaToday()),
+    addonsTotal,
     customer: { id: r.cu_id, name: r.customer_name, phone: r.customer_phone, email: r.cu_email, idNumber: r.cu_id_number, notes: r.cu_notes },
     containerId: r.container_id,
     paymentReference: r.payment_reference,
     source: r.source,
     createdBy: r.created_by,
     notes: r.notes,
+    addons,
   };
 }
 
 export type CreateBookingInput = {
+  moduleType: ModuleType;
   customerId?: number;
   newCustomer?: CustomerInput;
   packageType: string;
   startDate: string;
   endDate?: string | null;
+  startTime?: string | null;
+  endTime?: string | null;
+  resourceId?: number | null;
   price: number;
   source: BookingSource;
+  addons?: BookingAddon[];
   notes?: string | null;
   createdBy?: string | null;
 };
@@ -336,26 +563,51 @@ export async function createBooking(input: CreateBookingInput): Promise<BookingD
     throw new Error("Pilih customer yang sudah ada atau isi data customer baru");
   }
 
+  const config = MODULE_CONFIG[input.moduleType];
+  if (config.usesTimeSlots) {
+    if (!input.resourceId || !input.startTime || !input.endTime) {
+      throw new Error("Pilih ruang, jam mulai, dan jam selesai");
+    }
+    if (input.startTime >= input.endTime) {
+      throw new Error("Jam selesai harus setelah jam mulai");
+    }
+    if (config.minBookingHours && hoursBetween(input.startTime, input.endTime) < config.minBookingHours) {
+      throw new Error(`Booking minimal ${config.minBookingHours} jam`);
+    }
+    const conflict = await checkResourceConflict(input.resourceId, input.startDate, input.startTime, input.endTime);
+    if (conflict) {
+      throw new Error("Ruang ini sudah dibooking pada jam tersebut — pilih jam atau ruang lain");
+    }
+  }
+
   const customerId = input.customerId ?? (await createCustomer(input.newCustomer!)).id;
 
   const rows = await query<{ id: number }>(
-    `INSERT INTO bookings (customer_id, module_type, package_type, start_date, end_date, price, source, notes, created_by)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+    `INSERT INTO bookings (customer_id, module_type, package_type, start_date, end_date, start_time, end_time, resource_id, price, source, notes, created_by)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
      RETURNING id`,
     [
       customerId,
-      ACTIVE_MODULE_TYPE,
+      input.moduleType,
       input.packageType,
       input.startDate,
       input.endDate || null,
+      config.usesTimeSlots ? input.startTime : null,
+      config.usesTimeSlots ? input.endTime : null,
+      config.usesTimeSlots ? input.resourceId : null,
       input.price,
       input.source,
       input.notes?.trim() || null,
       input.createdBy || null,
     ]
   );
+  const bookingId = rows[0].id;
 
-  return (await getBooking(rows[0].id))!;
+  if (input.addons?.length) {
+    await replaceBookingAddons(bookingId, input.addons);
+  }
+
+  return (await getBooking(bookingId))!;
 }
 
 export type UpdateBookingInput = {
@@ -363,23 +615,31 @@ export type UpdateBookingInput = {
   packageType?: string;
   startDate?: string;
   endDate?: string | null;
+  startTime?: string | null;
+  endTime?: string | null;
+  resourceId?: number | null;
   price?: number;
   paymentStatus?: PaymentStatus;
   paymentReference?: string | null;
   status?: BookingStatus;
   containerId?: number | null;
+  addons?: BookingAddon[];
   notes?: string | null;
 };
 
-// Applies an edit to a booking, enforcing the two invariants the spec calls
-// out explicitly (§5.3/§5.4): flipping payment to Paid while still Pending
-// Payment auto-advances the booking to Confirmed, and a container can only
-// be assigned (moving a booking to Active) if it isn't already Assigned to
-// another Active booking.
+// Applies an edit to a booking, enforcing the invariants the spec calls out
+// (§5.3/§5.4), which differ slightly by module (see MODULE_CONFIG):
+// - Paying a Pending Payment booking auto-advances it — to Confirmed for
+//   shared_storage (still needs a container assigned at drop-off), straight
+//   to Active for co_working (nothing else to wait for).
+// - A container can only be assigned (moving to Active) if it isn't already
+//   Assigned to another Active booking — only checked for modules that use
+//   containers at all.
 export async function updateBooking(id: number, patch: UpdateBookingInput): Promise<BookingDetail> {
   await ensureSchema();
   const existing = await getBooking(id);
   if (!existing) throw new Error("Booking tidak ditemukan");
+  const config = MODULE_CONFIG[existing.moduleType];
 
   if (patch.customer) {
     await query(
@@ -398,12 +658,12 @@ export async function updateBooking(id: number, patch: UpdateBookingInput): Prom
   let nextStatus = patch.status ?? existing.status;
   const nextPaymentStatus = patch.paymentStatus ?? existing.paymentStatus;
   if (patch.paymentStatus === "Paid" && existing.status === "Pending Payment" && !patch.status) {
-    nextStatus = "Confirmed";
+    nextStatus = config.autoActivateOnPayment ? "Active" : "Confirmed";
   }
 
   let nextContainerId = patch.containerId !== undefined ? patch.containerId : existing.containerId;
 
-  if (nextStatus === "Active") {
+  if (nextStatus === "Active" && config.requiresContainer) {
     if (!nextContainerId) {
       throw new Error("Pilih container yang tersedia dulu sebelum mengubah status ke Active");
     }
@@ -421,6 +681,34 @@ export async function updateBooking(id: number, patch: UpdateBookingInput): Prom
     nextContainerId = existing.containerId;
   }
 
+  const nextStartDate = patch.startDate ?? existing.startDate;
+  const nextStartTime = patch.startTime !== undefined ? patch.startTime : existing.startTime;
+  const nextEndTime = patch.endTime !== undefined ? patch.endTime : existing.endTime;
+  const nextResourceId = patch.resourceId !== undefined ? patch.resourceId : existing.resourceId;
+
+  if (config.usesTimeSlots && !["Cancelled", "No-Show"].includes(nextStatus)) {
+    if (!nextResourceId || !nextStartTime || !nextEndTime) {
+      throw new Error("Pilih ruang, jam mulai, dan jam selesai");
+    }
+    if (nextStartTime >= nextEndTime) {
+      throw new Error("Jam selesai harus setelah jam mulai");
+    }
+    if (config.minBookingHours && hoursBetween(nextStartTime, nextEndTime) < config.minBookingHours) {
+      throw new Error(`Booking minimal ${config.minBookingHours} jam`);
+    }
+    const scheduleChanged =
+      nextResourceId !== existing.resourceId ||
+      nextStartDate !== existing.startDate ||
+      nextStartTime !== existing.startTime ||
+      nextEndTime !== existing.endTime;
+    if (scheduleChanged) {
+      const conflict = await checkResourceConflict(nextResourceId, nextStartDate, nextStartTime, nextEndTime, id);
+      if (conflict) {
+        throw new Error("Ruang ini sudah dibooking pada jam tersebut — pilih jam atau ruang lain");
+      }
+    }
+  }
+
   const fields: string[] = [];
   const params: unknown[] = [];
   const set = (col: string, value: unknown) => {
@@ -429,8 +717,11 @@ export async function updateBooking(id: number, patch: UpdateBookingInput): Prom
   };
 
   set("package_type", patch.packageType ?? existing.packageType);
-  set("start_date", patch.startDate ?? existing.startDate);
+  set("start_date", nextStartDate);
   set("end_date", patch.endDate !== undefined ? patch.endDate || null : existing.endDate);
+  set("start_time", config.usesTimeSlots ? nextStartTime : null);
+  set("end_time", config.usesTimeSlots ? nextEndTime : null);
+  set("resource_id", config.usesTimeSlots ? nextResourceId : null);
   set("price", patch.price ?? existing.price);
   set("payment_status", nextPaymentStatus);
   set("payment_reference", patch.paymentReference !== undefined ? patch.paymentReference || null : existing.paymentReference);
@@ -441,6 +732,10 @@ export async function updateBooking(id: number, patch: UpdateBookingInput): Prom
   params.push(id);
 
   await query(`UPDATE bookings SET ${fields.join(", ")} WHERE id = $${params.length}`, params);
+
+  if (patch.addons !== undefined) {
+    await replaceBookingAddons(id, patch.addons);
+  }
 
   return (await getBooking(id))!;
 }

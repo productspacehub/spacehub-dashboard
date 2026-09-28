@@ -5,8 +5,8 @@ import { useParams, useRouter } from "next/navigation";
 import Image from "next/image";
 import Link from "next/link";
 import { signOut, useSession } from "next-auth/react";
-import type { BookingDetail, ContainerRow } from "@/lib/bookings";
-import { BOOKING_STATUSES, PAYMENT_STATUSES, type BookingStatus, type PaymentStatus } from "@/lib/bookingConstants";
+import type { Addon, BookingAddon, BookingDetail, ContainerRow, ResourceRow } from "@/lib/bookings";
+import { BOOKING_STATUSES, MODULE_CONFIG, MODULE_INDEX_HREF, PAYMENT_STATUSES, type BookingStatus, type PaymentStatus } from "@/lib/bookingConstants";
 
 const inputStyle = {
   background: "var(--background)",
@@ -36,6 +36,8 @@ export default function BookingDetailPage() {
 
   const [booking, setBooking] = useState<BookingDetail | null>(null);
   const [containers, setContainers] = useState<ContainerRow[]>([]);
+  const [resources, setResources] = useState<ResourceRow[]>([]);
+  const [availableAddons, setAvailableAddons] = useState<Addon[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -45,41 +47,58 @@ export default function BookingDetailPage() {
     packageType: string;
     startDate: string;
     endDate: string;
+    startTime: string;
+    endTime: string;
+    resourceId: number | null;
     price: string;
     paymentStatus: PaymentStatus;
     paymentReference: string;
     status: BookingStatus;
     containerId: number | null;
+    addonQuantities: Map<string, number>;
     notes: string;
   } | null>(null);
 
   async function load() {
     setLoading(true);
     try {
-      const [bookingRes, containersRes] = await Promise.all([fetch(`/api/bookings/${id}`), fetch("/api/containers")]);
+      const bookingRes = await fetch(`/api/bookings/${id}`);
       const bookingBody = (await bookingRes.json()) as { booking?: BookingDetail; error?: string };
       if (!bookingRes.ok) throw new Error(bookingBody.error ?? "Gagal memuat booking");
-      const containersBody = (await containersRes.json()) as { containers?: ContainerRow[] };
+      const loaded = bookingBody.booking!;
 
-      setBooking(bookingBody.booking!);
-      setContainers(containersBody.containers ?? []);
+      const config = MODULE_CONFIG[loaded.moduleType];
+      const [containersBody, resourcesBody, addonsBody] = await Promise.all([
+        config.requiresContainer ? fetch("/api/containers").then((r) => r.json()) : Promise.resolve({ containers: [] }),
+        config.usesTimeSlots ? fetch(`/api/resources?module=${loaded.moduleType}`).then((r) => r.json()) : Promise.resolve({ resources: [] }),
+        fetch(`/api/addons?module=${loaded.moduleType}`).then((r) => r.json()),
+      ]);
+
+      setBooking(loaded);
+      setContainers((containersBody as { containers?: ContainerRow[] }).containers ?? []);
+      setResources((resourcesBody as { resources?: ResourceRow[] }).resources ?? []);
+      setAvailableAddons((addonsBody as { addons?: Addon[] }).addons ?? []);
       setForm({
         customer: {
-          name: bookingBody.booking!.customer.name,
-          phone: bookingBody.booking!.customer.phone,
-          email: bookingBody.booking!.customer.email ?? "",
-          idNumber: bookingBody.booking!.customer.idNumber ?? "",
-          notes: bookingBody.booking!.customer.notes ?? "",
+          name: loaded.customer.name,
+          phone: loaded.customer.phone,
+          email: loaded.customer.email ?? "",
+          idNumber: loaded.customer.idNumber ?? "",
+          notes: loaded.customer.notes ?? "",
         },
-        packageType: bookingBody.booking!.packageType,
-        startDate: bookingBody.booking!.startDate,
-        endDate: bookingBody.booking!.endDate ?? "",
-        price: String(bookingBody.booking!.price),
-        paymentStatus: bookingBody.booking!.paymentStatus,
-        paymentReference: bookingBody.booking!.paymentReference ?? "",
-        status: bookingBody.booking!.status,
-        containerId: bookingBody.booking!.containerId,
-        notes: bookingBody.booking!.notes ?? "",
+        packageType: loaded.packageType,
+        startDate: loaded.startDate,
+        endDate: loaded.endDate ?? "",
+        startTime: loaded.startTime ?? "",
+        endTime: loaded.endTime ?? "",
+        resourceId: loaded.resourceId,
+        price: String(loaded.price),
+        paymentStatus: loaded.paymentStatus,
+        paymentReference: loaded.paymentReference ?? "",
+        status: loaded.status,
+        containerId: loaded.containerId,
+        addonQuantities: new Map(loaded.addons.map((a) => [a.name, a.quantity])),
+        notes: loaded.notes ?? "",
       });
       setError(null);
     } catch (err) {
@@ -95,12 +114,30 @@ export default function BookingDetailPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
+  function toggleAddon(name: string) {
+    if (!form) return;
+    const next = new Map(form.addonQuantities);
+    if (next.has(name)) next.delete(name);
+    else next.set(name, 1);
+    setForm({ ...form, addonQuantities: next });
+  }
+
+  function setAddonQuantity(name: string, quantity: number) {
+    if (!form) return;
+    const next = new Map(form.addonQuantities);
+    next.set(name, Math.max(1, Math.floor(quantity) || 1));
+    setForm({ ...form, addonQuantities: next });
+  }
+
   async function handleSave(e: React.FormEvent) {
     e.preventDefault();
-    if (!form) return;
+    if (!form || !booking) return;
     setSaving(true);
     setError(null);
     try {
+      const addons: BookingAddon[] = availableAddons
+        .filter((a) => form.addonQuantities.has(a.name))
+        .map((a) => ({ name: a.name, price: a.price, quantity: form.addonQuantities.get(a.name)! }));
       const res = await fetch(`/api/bookings/${id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
@@ -109,17 +146,21 @@ export default function BookingDetailPage() {
           packageType: form.packageType,
           startDate: form.startDate,
           endDate: form.endDate || null,
+          startTime: MODULE_CONFIG[booking.moduleType].usesTimeSlots ? form.startTime || null : undefined,
+          endTime: MODULE_CONFIG[booking.moduleType].usesTimeSlots ? form.endTime || null : undefined,
+          resourceId: MODULE_CONFIG[booking.moduleType].usesTimeSlots ? form.resourceId : undefined,
           price: Number(form.price),
           paymentStatus: form.paymentStatus,
           paymentReference: form.paymentReference || null,
           status: form.status,
           containerId: form.containerId,
+          addons,
           notes: form.notes,
         }),
       });
       const body = (await res.json()) as { booking?: BookingDetail; error?: string };
       if (!res.ok) throw new Error(body.error ?? "Gagal menyimpan");
-      router.push("/bookings");
+      router.push(MODULE_INDEX_HREF[booking.moduleType]);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Gagal menyimpan");
     } finally {
@@ -128,6 +169,10 @@ export default function BookingDetailPage() {
   }
 
   const selectableContainers = containers.filter((c) => c.status === "Free" || c.id === form?.containerId);
+  const addonsTotal = form
+    ? availableAddons.reduce((sum, a) => sum + (form.addonQuantities.has(a.name) ? a.price * form.addonQuantities.get(a.name)! : 0), 0)
+    : 0;
+  const grandTotal = form ? (Number(form.price) || 0) + addonsTotal : 0;
 
   return (
     <div className="min-h-screen px-6 py-10 sm:px-10">
@@ -146,7 +191,11 @@ export default function BookingDetailPage() {
           </div>
         </header>
 
-        <Link href="/bookings" className="mb-6 inline-block text-sm hover:underline" style={{ color: "var(--series-1)" }}>
+        <Link
+          href={booking ? MODULE_INDEX_HREF[booking.moduleType] : "/bookings"}
+          className="mb-6 inline-block text-sm hover:underline"
+          style={{ color: "var(--series-1)" }}
+        >
           ← Kembali ke daftar booking
         </Link>
 
@@ -199,18 +248,45 @@ export default function BookingDetailPage() {
                     <input value={form.packageType} onChange={(e) => setForm({ ...form, packageType: e.target.value })} className="rounded-lg border px-3 py-2 text-sm" style={inputStyle} />
                   </label>
                   <label className="flex flex-col gap-1 text-xs" style={{ color: "var(--text-secondary)" }}>
-                    Harga (IDR)
+                    Harga paket (IDR)
                     <input type="number" min={0} value={form.price} onChange={(e) => setForm({ ...form, price: e.target.value })} className="rounded-lg border px-3 py-2 text-sm" style={inputStyle} />
                     {Number(form.price) > 0 && <span style={{ color: "var(--text-muted)" }}>{formatIdr(Number(form.price))}</span>}
                   </label>
                   <label className="flex flex-col gap-1 text-xs" style={{ color: "var(--text-secondary)" }}>
-                    Tanggal mulai
+                    {MODULE_CONFIG[booking.moduleType].usesTimeSlots ? "Tanggal" : "Tanggal mulai"}
                     <input type="date" value={form.startDate} onChange={(e) => setForm({ ...form, startDate: e.target.value })} className="rounded-lg border px-3 py-2 text-sm" style={inputStyle} />
                   </label>
-                  <label className="flex flex-col gap-1 text-xs" style={{ color: "var(--text-secondary)" }}>
-                    Tanggal selesai
-                    <input type="date" value={form.endDate} onChange={(e) => setForm({ ...form, endDate: e.target.value })} className="rounded-lg border px-3 py-2 text-sm" style={inputStyle} />
-                  </label>
+                  {MODULE_CONFIG[booking.moduleType].usesTimeSlots ? (
+                    <>
+                      <label className="flex flex-col gap-1 text-xs" style={{ color: "var(--text-secondary)" }}>
+                        Ruang
+                        <select
+                          value={form.resourceId ?? ""}
+                          onChange={(e) => setForm({ ...form, resourceId: e.target.value ? Number(e.target.value) : null })}
+                          className="rounded-lg border px-3 py-2 text-sm"
+                          style={inputStyle}
+                        >
+                          <option value="">Pilih ruang…</option>
+                          {resources.map((r) => (
+                            <option key={r.id} value={r.id}>{r.name}</option>
+                          ))}
+                        </select>
+                      </label>
+                      <label className="flex flex-col gap-1 text-xs" style={{ color: "var(--text-secondary)" }}>
+                        Jam mulai
+                        <input type="time" value={form.startTime} onChange={(e) => setForm({ ...form, startTime: e.target.value })} className="rounded-lg border px-3 py-2 text-sm" style={inputStyle} />
+                      </label>
+                      <label className="flex flex-col gap-1 text-xs" style={{ color: "var(--text-secondary)" }}>
+                        Jam selesai
+                        <input type="time" value={form.endTime} onChange={(e) => setForm({ ...form, endTime: e.target.value })} className="rounded-lg border px-3 py-2 text-sm" style={inputStyle} />
+                      </label>
+                    </>
+                  ) : (
+                    <label className="flex flex-col gap-1 text-xs" style={{ color: "var(--text-secondary)" }}>
+                      Tanggal selesai
+                      <input type="date" value={form.endDate} onChange={(e) => setForm({ ...form, endDate: e.target.value })} className="rounded-lg border px-3 py-2 text-sm" style={inputStyle} />
+                    </label>
+                  )}
                 </div>
                 <label className="mt-4 flex flex-col gap-1 text-xs" style={{ color: "var(--text-secondary)" }}>
                   Catatan booking
@@ -235,12 +311,16 @@ export default function BookingDetailPage() {
                   </label>
                 </div>
                 <p className="mt-2 text-xs" style={{ color: "var(--text-muted)" }}>
-                  Mengubah status pembayaran ke Paid saat status booking masih Pending Payment akan otomatis mengubah status ke Confirmed.
+                  {MODULE_CONFIG[booking.moduleType].autoActivateOnPayment
+                    ? "Mengubah status pembayaran ke Paid saat status booking masih Pending Payment akan otomatis mengubah status ke Active."
+                    : "Mengubah status pembayaran ke Paid saat status booking masih Pending Payment akan otomatis mengubah status ke Confirmed."}
                 </p>
               </section>
 
               <section className="rounded-2xl border p-6" style={{ background: "var(--surface-1)", borderColor: "var(--gridline)" }}>
-                <p className="mb-4 text-sm font-semibold" style={{ color: "var(--text-primary)" }}>Status &amp; Container</p>
+                <p className="mb-4 text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
+                  {MODULE_CONFIG[booking.moduleType].requiresContainer ? "Status & Container" : "Status"}
+                </p>
                 <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <label className="flex flex-col gap-1 text-xs" style={{ color: "var(--text-secondary)" }}>
                     Status booking
@@ -250,24 +330,74 @@ export default function BookingDetailPage() {
                       ))}
                     </select>
                   </label>
-                  <label className="flex flex-col gap-1 text-xs" style={{ color: "var(--text-secondary)" }}>
-                    Container
-                    <select
-                      value={form.containerId ?? ""}
-                      onChange={(e) => setForm({ ...form, containerId: e.target.value ? Number(e.target.value) : null })}
-                      className="rounded-lg border px-3 py-2 text-sm"
-                      style={inputStyle}
-                    >
-                      <option value="">Belum ditetapkan</option>
-                      {selectableContainers.map((c) => (
-                        <option key={c.id} value={c.id}>{c.label}</option>
-                      ))}
-                    </select>
-                  </label>
+                  {MODULE_CONFIG[booking.moduleType].requiresContainer && (
+                    <label className="flex flex-col gap-1 text-xs" style={{ color: "var(--text-secondary)" }}>
+                      Container
+                      <select
+                        value={form.containerId ?? ""}
+                        onChange={(e) => setForm({ ...form, containerId: e.target.value ? Number(e.target.value) : null })}
+                        className="rounded-lg border px-3 py-2 text-sm"
+                        style={inputStyle}
+                      >
+                        <option value="">Belum ditetapkan</option>
+                        {selectableContainers.map((c) => (
+                          <option key={c.id} value={c.id}>{c.label}</option>
+                        ))}
+                      </select>
+                    </label>
+                  )}
                 </div>
-                <p className="mt-2 text-xs" style={{ color: "var(--text-muted)" }}>
-                  Untuk mengubah status ke Active, pilih container yang Free dulu (drop-off). Melepas status Active akan otomatis mengembalikan container ke Free.
-                </p>
+                {MODULE_CONFIG[booking.moduleType].requiresContainer && (
+                  <p className="mt-2 text-xs" style={{ color: "var(--text-muted)" }}>
+                    Untuk mengubah status ke Active, pilih container yang Free dulu (drop-off). Melepas status Active akan otomatis mengembalikan container ke Free.
+                  </p>
+                )}
+              </section>
+
+              <section className="rounded-2xl border p-6" style={{ background: "var(--surface-1)", borderColor: "var(--gridline)" }}>
+                <p className="mb-4 text-sm font-semibold" style={{ color: "var(--text-primary)" }}>Addon</p>
+                {availableAddons.length === 0 ? (
+                  <p className="text-sm" style={{ color: "var(--text-muted)" }}>Belum ada addon terdaftar.</p>
+                ) : (
+                  <div className="flex flex-col gap-3">
+                    {availableAddons.map((a) => {
+                      const qty = form.addonQuantities.get(a.name);
+                      return (
+                        <div key={a.id} className="flex items-center gap-3">
+                          <label className="flex flex-1 items-center gap-2 text-sm" style={{ color: "var(--text-secondary)" }}>
+                            <input type="checkbox" checked={qty !== undefined} onChange={() => toggleAddon(a.name)} />
+                            {a.name} {a.price > 0 && <span style={{ color: "var(--text-muted)" }}>(Rp{a.price.toLocaleString("id-ID")}/unit)</span>}
+                          </label>
+                          {qty !== undefined && (
+                            <input
+                              type="number"
+                              min={1}
+                              value={qty}
+                              onChange={(e) => setAddonQuantity(a.name, Number(e.target.value))}
+                              className="w-20 rounded-lg border px-2 py-1 text-sm"
+                              style={inputStyle}
+                            />
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </section>
+
+              <section className="rounded-2xl border p-6" style={{ background: "var(--surface-1)", borderColor: "var(--gridline)" }}>
+                <div className="flex items-center justify-between text-sm" style={{ color: "var(--text-secondary)" }}>
+                  <span>Harga paket</span>
+                  <span>{formatIdr(Number(form.price) || 0)}</span>
+                </div>
+                <div className="mt-1 flex items-center justify-between text-sm" style={{ color: "var(--text-secondary)" }}>
+                  <span>Addon</span>
+                  <span>{formatIdr(addonsTotal)}</span>
+                </div>
+                <div className="mt-3 flex items-center justify-between border-t pt-3 text-sm font-semibold" style={{ borderColor: "var(--gridline)", color: "var(--text-primary)" }}>
+                  <span>Total</span>
+                  <span>{formatIdr(grandTotal)}</span>
+                </div>
               </section>
 
               <button type="submit" disabled={saving} className="self-start rounded-full px-5 py-2.5 text-sm font-medium disabled:opacity-50" style={{ background: "var(--series-1)", color: "var(--background)" }}>

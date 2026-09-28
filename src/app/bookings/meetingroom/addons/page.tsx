@@ -3,9 +3,9 @@
 import Image from "next/image";
 import { signOut, useSession } from "next-auth/react";
 import { PriceListEditor } from "@/components/bookings/PriceListEditor";
-import type { RatePackage } from "@/lib/bookings";
+import type { Addon } from "@/lib/bookings";
 
-export default function SharedStorageRatesPage() {
+export default function MeetingRoomAddonsPage() {
   const { data: session } = useSession();
 
   return (
@@ -26,17 +26,17 @@ export default function SharedStorageRatesPage() {
         </header>
 
         <PriceListEditor
-          title="Rate table — Shared Storage"
-          description="Harga per package (mis. Daily, Weekly). Dipakai untuk mengisi harga otomatis saat membuat booking baru — tetap bisa diubah manual per booking."
-          emptyHint='Belum ada package. Tambahkan mis. "Daily" dan "Weekly" dengan harganya.'
-          labelPlaceholder="Nama package, mis. Daily"
-          apiPath="/api/rates?module=shared_storage"
-          backHref="/bookings"
+          title="Addon — Meeting Room"
+          description="Addon peralatan yang bisa dipilih saat membuat booking (mis. proyektor, whiteboard tambahan)."
+          emptyHint='Belum ada addon. Tambahkan mis. "Proyektor" dengan harganya.'
+          labelPlaceholder="Nama addon, mis. Proyektor"
+          apiPath="/api/addons?module=meeting_room"
+          backHref="/bookings/meetingroom"
           backLabel="Kembali ke daftar booking"
-          toRows={(json) => ((json as { packages?: RatePackage[] }).packages ?? []).map((p) => ({ label: p.packageName, price: String(p.price) }))}
+          toRows={(json) => ((json as { addons?: Addon[] }).addons ?? []).map((a) => ({ label: a.name, price: String(a.price) }))}
           toRequestBody={(rows) => ({
-            module: "shared_storage",
-            packages: rows.map((r) => ({ packageName: r.label.trim(), price: Number(r.price) || 0 })),
+            module: "meeting_room",
+            addons: rows.map((r) => ({ name: r.label.trim(), price: Number(r.price) || 0 })),
           })}
         />
       </div>

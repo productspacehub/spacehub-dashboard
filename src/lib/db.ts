@@ -90,20 +90,70 @@ async function createSchema(): Promise<void> {
       -- Admin-editable per-module rate table (§5.2 of the booking MVP spec) —
       -- ships empty; admin adds package rows (e.g. Daily/Weekly for
       -- shared_storage) with real prices before taking live bookings.
+      -- resource_id (added below, once the resources table exists) lets the
+      -- same package name be priced differently per room for Meeting Room/
+      -- Studio — the uniqueness rule lives on that column's index instead of
+      -- an inline UNIQUE here, since it also depends on resource_id.
       CREATE TABLE IF NOT EXISTS rate_packages (
         id           SERIAL PRIMARY KEY,
         module_type  TEXT NOT NULL DEFAULT 'shared_storage',
         package_name TEXT NOT NULL,
         price        NUMERIC(12,2) NOT NULL DEFAULT 0,
         created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
-        updated_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
-        UNIQUE (module_type, package_name)
+        updated_at   TIMESTAMPTZ NOT NULL DEFAULT now()
       );
 
+      -- Admin-editable per-module addon menu (e.g. Co-working's free water
+      -- refill/TV/lockers, §7.1) — same "ships empty, admin fills it in"
+      -- pattern as rate_packages.
+      CREATE TABLE IF NOT EXISTS addons (
+        id           SERIAL PRIMARY KEY,
+        module_type  TEXT NOT NULL,
+        name         TEXT NOT NULL,
+        price        NUMERIC(12,2) NOT NULL DEFAULT 0,
+        created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+        updated_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+        UNIQUE (module_type, name)
+      );
+
+      -- Bookable rooms for Meeting Room / Studio (§7.2) — the calendar-module
+      -- equivalent of Container, but availability isn't a single current
+      -- Free/Assigned state: one room serves many different bookings across
+      -- a day, just not overlapping ones, so "is it free" is always a
+      -- time-range query against bookings (see checkResourceConflict in
+      -- src/lib/bookings.ts) rather than a stored/derived status column.
+      CREATE TABLE IF NOT EXISTS resources (
+        id           SERIAL PRIMARY KEY,
+        module_type  TEXT NOT NULL,
+        name         TEXT NOT NULL,
+        created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+        UNIQUE (module_type, name)
+      );
+
+      -- Per-room pricing for rate_packages: a package row can optionally be
+      -- scoped to one room (Meeting Room/Studio only — NULL everywhere
+      -- else, same "unused outside its module" convention as container_id/
+      -- resource_id on bookings). NULL means "applies to every room that
+      -- doesn't have its own override" — a genuine fallback, not just an
+      -- unset field, so it must collide with itself under uniqueness the
+      -- same way a real resource_id would; COALESCE(resource_id, 0) does
+      -- that (0 is never a real resources.id, SERIAL starts at 1).
+      -- On a pre-existing rate_packages table (every database as of this
+      -- migration), the old inline UNIQUE(module_type, package_name) from
+      -- before per-room pricing existed is still there under its default
+      -- name and would block two rooms ever sharing a package name — drop
+      -- it before adding the replacement index.
+      ALTER TABLE rate_packages DROP CONSTRAINT IF EXISTS rate_packages_module_type_package_name_key;
+      ALTER TABLE rate_packages ADD COLUMN IF NOT EXISTS resource_id INTEGER REFERENCES resources(id) ON DELETE SET NULL;
+      CREATE UNIQUE INDEX IF NOT EXISTS rate_packages_module_pkg_resource_idx
+        ON rate_packages (module_type, package_name, COALESCE(resource_id, 0));
+
       -- The core generic booking object (module-agnostic per the spec's §4
-      -- shared data model) — only module_type = 'shared_storage' is active
-      -- in the MVP; the others are reserved for later modules so this table
-      -- doesn't need rework when they're added.
+      -- shared data model) — shared_storage, co_working, meeting_room, and
+      -- studio are all active. start_time/end_time/resource_id are only
+      -- used by the calendar modules (meeting_room/studio) — NULL
+      -- everywhere else, same as container_id being unused outside
+      -- shared_storage.
       CREATE TABLE IF NOT EXISTS bookings (
         id                 SERIAL PRIMARY KEY,
         customer_id        INTEGER NOT NULL REFERENCES customers(id),
@@ -112,8 +162,11 @@ async function createSchema(): Promise<void> {
         package_type       TEXT NOT NULL,
         start_date         DATE NOT NULL,
         end_date           DATE,
+        start_time         TIME,
+        end_time           TIME,
         price              NUMERIC(12,2) NOT NULL,
         container_id       INTEGER REFERENCES containers(id),
+        resource_id        INTEGER REFERENCES resources(id),
         status             TEXT NOT NULL DEFAULT 'Pending Payment'
                              CHECK (status IN ('Pending Payment', 'Confirmed', 'Active', 'Completed', 'Cancelled', 'No-Show')),
         payment_status     TEXT NOT NULL DEFAULT 'Unpaid' CHECK (payment_status IN ('Unpaid', 'Paid')),
@@ -127,6 +180,34 @@ async function createSchema(): Promise<void> {
       CREATE INDEX IF NOT EXISTS bookings_status_idx ON bookings (status);
       CREATE INDEX IF NOT EXISTS bookings_container_idx ON bookings (container_id);
       CREATE INDEX IF NOT EXISTS bookings_customer_idx ON bookings (customer_id);
+      -- Safety net for a bookings table that already existed before these
+      -- columns were added (same reasoning as booking_addons.quantity below).
+      -- Must run before the resource_id index below — on a pre-existing
+      -- table, CREATE TABLE IF NOT EXISTS is a no-op, so the column (and
+      -- therefore anything indexing it) doesn't exist until this ALTER runs.
+      ALTER TABLE bookings ADD COLUMN IF NOT EXISTS start_time TIME;
+      ALTER TABLE bookings ADD COLUMN IF NOT EXISTS end_time TIME;
+      ALTER TABLE bookings ADD COLUMN IF NOT EXISTS resource_id INTEGER REFERENCES resources(id);
+      CREATE INDEX IF NOT EXISTS bookings_resource_idx ON bookings (resource_id);
+
+      -- Selected addons per booking, snapshotted (name + price at the time of
+      -- booking) rather than a foreign key to addons — so renaming, repricing,
+      -- or removing an addon from the admin menu never changes what an
+      -- already-made booking shows.
+      CREATE TABLE IF NOT EXISTS booking_addons (
+        id           SERIAL PRIMARY KEY,
+        booking_id   INTEGER NOT NULL REFERENCES bookings(id) ON DELETE CASCADE,
+        addon_name   TEXT NOT NULL,
+        price        NUMERIC(12,2) NOT NULL,
+        quantity     INTEGER NOT NULL DEFAULT 1,
+        created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+      CREATE INDEX IF NOT EXISTS booking_addons_booking_idx ON booking_addons (booking_id);
+      -- ADD COLUMN IF NOT EXISTS rather than relying only on the CREATE TABLE
+      -- above: this table may already exist (e.g. on the staging database)
+      -- from before quantity was added, and CREATE TABLE IF NOT EXISTS is a
+      -- no-op against an existing table — it wouldn't backfill the column.
+      ALTER TABLE booking_addons ADD COLUMN IF NOT EXISTS quantity INTEGER NOT NULL DEFAULT 1;
     `);
     await client.query("COMMIT");
   } catch (err) {
