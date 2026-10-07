@@ -38,8 +38,8 @@ export const MODULE_CONFIG: Record<
 > = {
   shared_storage: { requiresContainer: true, autoActivateOnPayment: false, usesTimeSlots: false, minBookingHours: null },
   co_working: { requiresContainer: false, autoActivateOnPayment: true, usesTimeSlots: false, minBookingHours: null },
-  meeting_room: { requiresContainer: false, autoActivateOnPayment: false, usesTimeSlots: true, minBookingHours: 3 },
-  studio: { requiresContainer: false, autoActivateOnPayment: false, usesTimeSlots: true, minBookingHours: 3 },
+  meeting_room: { requiresContainer: false, autoActivateOnPayment: false, usesTimeSlots: true, minBookingHours: null },
+  studio: { requiresContainer: false, autoActivateOnPayment: false, usesTimeSlots: true, minBookingHours: null },
 };
 
 // Each module's own list page — the single source of truth for "where does

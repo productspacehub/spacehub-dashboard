@@ -298,10 +298,13 @@ Open [http://localhost:3000](http://localhost:3000) — you'll be redirected to
     deliberately deferred; a sorted list is enough for v1's expected
     volume). Pricing here is manual, same as the other modules — there is
     no automatic per-hour rate calculation from the selected time range, so
-    "Harga paket" is a plain editable field the admin fills in themselves
-    (the New Booking form does show a soft reminder, "Minimal booking 3
-    jam", but this is **not enforced** — an admin can still save a
-    booking shorter than 3 hours if the business needs to allow one).
+    "Harga paket" is a plain editable field the admin fills in themselves.
+    A minimum booking duration was briefly enforced per module
+    (`minBookingHours` in `MODULE_CONFIG`) and has since been turned back
+    off (`null`) for both Meeting Room and Studio — the config point is
+    still there, so re-enabling a minimum later (the same or a different
+    number of hours, and independently per module) is a one-line change,
+    not a feature to rebuild.
   - **Rate/Package Config** (`rate_packages` table) is an admin-editable
     price list per module (e.g. Daily/Weekly for Shared Storage; Hot Desk
     Daily/Weekly/Monthly for Co-working) rather than hardcoded pricing,
