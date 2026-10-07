@@ -36,7 +36,7 @@ export default function MeetingRoomRatesPage() {
 
         <PriceListEditor
           title="Rate table — Meeting Room"
-          description='Harga per package (mis. Per Jam, Paket Setengah Hari). Pilih "Semua ruang" untuk tarif umum, atau pilih ruang tertentu untuk harga khusus ruang itu (mengalahkan tarif umum untuk package dengan nama yang sama). Minimal booking 3 jam — admin yang menghitung total sesuai durasi saat membuat booking.'
+          description='Harga per package (mis. Per Jam, Paket Setengah Hari). Pilih "Semua ruang" untuk tarif umum, atau pilih ruang tertentu untuk harga khusus ruang itu (mengalahkan tarif umum untuk package dengan nama yang sama). Admin yang menghitung total sesuai durasi saat membuat booking.'
           emptyHint='Belum ada package. Tambahkan mis. "Per Jam" dengan harganya.'
           labelPlaceholder="Nama package, mis. Per Jam"
           apiPath="/api/rates?module=meeting_room"

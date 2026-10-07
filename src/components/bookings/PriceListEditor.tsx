@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { useScrollToError } from "./useScrollToError";
 
 // resourceId is a string select value: "" means "applies to every room
 // without its own override" (see rate_packages_module_pkg_resource_idx).
@@ -50,6 +51,7 @@ export function PriceListEditor({
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const errorRef = useScrollToError<HTMLDivElement>(error);
   const [savedAt, setSavedAt] = useState<number | null>(null);
 
   useEffect(() => {
@@ -113,7 +115,7 @@ export function PriceListEditor({
       <p className="mb-6 text-sm" style={{ color: "var(--text-secondary)" }}>{description}</p>
 
       {error && (
-        <div className="mb-6 rounded-lg border px-4 py-3 text-sm" style={{ borderColor: "var(--status-critical)", color: "var(--status-critical)", background: "var(--surface-1)" }}>
+        <div ref={errorRef} className="mb-6 rounded-lg border px-4 py-3 text-sm" style={{ borderColor: "var(--status-critical)", color: "var(--status-critical)", background: "var(--surface-1)" }}>
           {error}
         </div>
       )}
