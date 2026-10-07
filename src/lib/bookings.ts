@@ -1,5 +1,5 @@
 import { ensureSchema, query } from "./db";
-import { jakartaToday } from "./snapshots";
+import { jakartaToday, jakartaNowTime } from "./snapshots";
 import { MODULE_CONFIG, type BookingSource, type BookingStatus, type ModuleType, type PaymentStatus } from "./bookingConstants";
 
 export { MODULE_TYPES, MODULE_LABELS, MODULE_CONFIG, BOOKING_STATUSES, PAYMENT_STATUSES, BOOKING_SOURCES } from "./bookingConstants";
@@ -452,7 +452,37 @@ type ListRow = {
   addons_total: string;
 };
 
+// Auto Confirmed -> Active -> Completed as the service time arrives/passes
+// — Meeting Room/Studio only (usesTimeSlots), a deliberate choice: Shared
+// Storage's Active means "a container has actually been assigned" (a real
+// physical event, not just a date arriving) and Co-working already skips
+// Confirmed entirely on payment, so neither has a "service time" for this to
+// hinge on. Computed at read time, same as isOverdue above — never written
+// back on its own, so there's no cron to run or miss, and it can't drift out
+// of sync with the clock. Only ever advances (Confirmed -> Active ->
+// Completed), never retreats — an admin who manually sets Active early (or
+// Cancelled/No-Show at any point) isn't overridden backwards by this.
+function computeEffectiveStatus(
+  status: BookingStatus,
+  moduleType: ModuleType,
+  startDate: string,
+  startTime: string | null,
+  endTime: string | null
+): BookingStatus {
+  if (!MODULE_CONFIG[moduleType].usesTimeSlots) return status;
+  if (status !== "Confirmed" && status !== "Active") return status;
+  if (!startTime || !endTime) return status;
+  const nowDate = jakartaToday();
+  const nowTime = jakartaNowTime();
+  const hasEnded = nowDate > startDate || (nowDate === startDate && nowTime >= endTime);
+  if (hasEnded) return "Completed";
+  if (status === "Active") return "Active";
+  const hasStarted = nowDate > startDate || (nowDate === startDate && nowTime >= startTime);
+  return hasStarted ? "Active" : "Confirmed";
+}
+
 function mapListRow(r: ListRow, today: string): BookingListItem {
+  const status = computeEffectiveStatus(r.status, r.module_type, r.start_date, r.start_time, r.end_time);
   return {
     id: r.id,
     moduleType: r.module_type,
@@ -467,7 +497,7 @@ function mapListRow(r: ListRow, today: string): BookingListItem {
     resourceName: r.resource_name,
     price: Number(r.price),
     addonsTotal: Number(r.addons_total),
-    status: r.status,
+    status,
     paymentStatus: r.payment_status,
     containerLabel: r.container_label,
     createdAt: r.created_at,
@@ -481,6 +511,32 @@ export async function listBookings(filters: {
   q?: string;
 }): Promise<{ bookings: BookingListItem[]; counts: BookingCounts }> {
   await ensureSchema();
+  const today = jakartaToday();
+
+  if (MODULE_CONFIG[filters.moduleType].usesTimeSlots) {
+    // Status is computed at read time for this module (computeEffectiveStatus)
+    // — filtering/counting against the raw stored column at the SQL level
+    // would miss bookings whose displayed status has since advanced (or
+    // wrongly include ones that have moved on), so fetch the whole module's
+    // rows and do both status and search filtering in JS against the
+    // already-computed status instead. Counts are tallied before the q
+    // filter is applied, matching the other modules' counts staying
+    // unaffected by the search box.
+    const rows = await query<ListRow>(`${LIST_SELECT} WHERE b.module_type = $1 ORDER BY b.created_at DESC`, [filters.moduleType]);
+    const mapped = rows.map((r) => mapListRow(r, today));
+
+    const counts = emptyCounts();
+    for (const b of mapped) counts[b.status]++;
+
+    const q = filters.q?.trim().toLowerCase();
+    const bookings = mapped.filter((b) => {
+      if (filters.status && b.status !== filters.status) return false;
+      if (q && !b.customerName.toLowerCase().includes(q) && !b.customerPhone.includes(q)) return false;
+      return true;
+    });
+    return { bookings, counts };
+  }
+
   const conditions = [`b.module_type = $1`];
   const params: unknown[] = [filters.moduleType];
 
@@ -502,7 +558,6 @@ export async function listBookings(filters: {
   const counts = emptyCounts();
   for (const row of countRows) counts[row.status] = Number(row.count);
 
-  const today = jakartaToday();
   return { bookings: rows.map((r) => mapListRow(r, today)), counts };
 }
 

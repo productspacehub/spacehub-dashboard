@@ -245,17 +245,47 @@ Open [http://localhost:3000](http://localhost:3000) — you'll be redirected to
   - **Booking** (`bookings` table) is the core object: customer, package
     type, dates, price, source (Online Inquiry / Walk-in), payment status,
     and status. Status is one of Pending Payment → Confirmed → Active →
-    Completed, with Cancelled/No-Show exits — all manual/admin-driven in the
-    MVP, no automatic transitions based on dates. `updateBooking` enforces
-    invariants directly rather than leaving them to the UI, and the exact
-    behavior is module-config-driven (`MODULE_CONFIG`): flipping payment to
-    Paid while a booking is still Pending Payment auto-advances it —  for
-    Shared Storage, to Confirmed (`requiresContainer: true`, still needs a
-    container assigned at drop-off); for Co-working, straight to Active
+    Completed, with Cancelled/No-Show exits — admin-driven for the
+    Pending Payment → Confirmed step everywhere, and for Shared Storage/
+    Co-working the rest of the way too (see below for Meeting Room/Studio).
+    `updateBooking` enforces invariants directly rather than leaving them to
+    the UI, and the exact behavior is module-config-driven (`MODULE_CONFIG`):
+    flipping payment to Paid while a booking is still Pending Payment
+    auto-advances it —  for Shared Storage, to Confirmed
+    (`requiresContainer: true`, still needs a container assigned at
+    drop-off); for Co-working, straight to Active
     (`autoActivateOnPayment: true` — availability is a headcount check, so
     there's nothing else to wait for). Moving to Active for a module with
     `requiresContainer` additionally requires a Free container in the same
     request.
+  - **Meeting Room/Studio auto-advance Confirmed → Active → Completed as
+    the booking's own start/end time arrives** (`computeEffectiveStatus`) —
+    the one exception to "status changes are admin-driven," and deliberately
+    scoped to just these two modules: Shared Storage's Active means a
+    container has actually been assigned (a real physical event, not just a
+    date arriving) and Co-working already skips Confirmed entirely on
+    payment, so neither has a "service time" for this to hinge on. Computed
+    at read time against the Jakarta wall-clock, the same derived-not-stored
+    approach as `isOverdue`/Container status below — there is no cron job
+    for this, so it can never drift out of sync with the clock or depend on
+    a scheduled run that might not have happened yet; every list/detail read
+    is simply always correct for the moment it's read. The raw `status`
+    column is never silently rewritten in the background — it only changes
+    through an explicit admin save (at which point, if nothing else
+    overrides it, the save naturally persists whatever the booking's current
+    effective status was, since the detail page's status field is
+    initialized from it). The computation only ever advances forward
+    (Confirmed → Active → Completed), never retreats — an admin who manually
+    sets Active before the start time, or Cancelled/No-Show at any point,
+    is never overridden backwards by it. Because status for these two
+    modules is computed rather than stored, `listBookings` can't filter or
+    tally counts for them with a SQL `WHERE status = …`/`GROUP BY status`
+    against the raw column (it would miss or wrongly include bookings whose
+    displayed status has since moved on) — it fetches the module's full
+    booking list instead and does status filtering, search, and the count
+    tallies in JS against the already-computed status; Shared Storage/
+    Co-working are unaffected and keep doing both at the SQL level exactly
+    as before.
   - A booking still Active past its own end date is flagged `isOverdue`
     (computed at read time from `status`/`end_date` vs. today's Jakarta
     calendar day, not stored — same reasoning as Container status below: it

@@ -26,6 +26,13 @@ export function jakartaToday(): string {
   return jakartaDateString(new Date());
 }
 
+// "HH:MM" on the Jakarta wall-clock, same format as bookings.start_time/
+// end_time (to_char(..., 'HH24:MI')) — so the two can be compared directly
+// as strings, same as jakartaToday() against a stored start_date/end_date.
+export function jakartaNowTime(): string {
+  return new Date().toLocaleTimeString("en-GB", { timeZone: "Asia/Jakarta", hour: "2-digit", minute: "2-digit", hour12: false });
+}
+
 export function jakartaDaysAgo(days: number): string {
   const d = new Date();
   d.setUTCDate(d.getUTCDate() - days);
