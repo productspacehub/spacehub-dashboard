@@ -14,6 +14,9 @@ export default function ContainersPage() {
   const [loading, setLoading] = useState(true);
   const [newLabel, setNewLabel] = useState("");
   const [creating, setCreating] = useState(false);
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [editValue, setEditValue] = useState("");
+  const [savingEdit, setSavingEdit] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
 
   const load = useCallback(async (query: string) => {
@@ -59,6 +62,39 @@ export default function ContainersPage() {
       setError(err instanceof Error ? err.message : "Gagal menambah container");
     } finally {
       setCreating(false);
+    }
+  }
+
+  function startEdit(c: ContainerRow) {
+    setEditingId(c.id);
+    setEditValue(c.label);
+    setError(null);
+  }
+
+  function cancelEdit() {
+    setEditingId(null);
+    setEditValue("");
+  }
+
+  async function saveEdit(id: number) {
+    if (!editValue.trim()) return;
+    setSavingEdit(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/containers/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ label: editValue }),
+      });
+      const body = await res.json();
+      if (!res.ok) throw new Error(body?.error ?? "Gagal menyimpan Container ID");
+      setEditingId(null);
+      setEditValue("");
+      await load(q);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Gagal menyimpan Container ID");
+    } finally {
+      setSavingEdit(false);
     }
   }
 
@@ -143,7 +179,42 @@ export default function ContainersPage() {
                   )}
                   {containers.map((c) => (
                     <tr key={c.id} style={{ borderBottom: "1px solid var(--gridline)" }}>
-                      <td className="px-4 py-3 font-semibold" style={{ color: "var(--text-primary)" }}>{c.label}</td>
+                      <td className="px-4 py-3 font-semibold" style={{ color: "var(--text-primary)" }}>
+                        {editingId === c.id ? (
+                          <div className="flex flex-wrap items-center gap-2">
+                            <input
+                              value={editValue}
+                              onChange={(e) => setEditValue(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") saveEdit(c.id);
+                                if (e.key === "Escape") cancelEdit();
+                              }}
+                              autoFocus
+                              className="min-w-[140px] rounded-lg border px-2 py-1 text-sm font-normal"
+                              style={{ background: "var(--background)", borderColor: "var(--gridline)", color: "var(--text-primary)" }}
+                            />
+                            <button
+                              type="button"
+                              onClick={() => saveEdit(c.id)}
+                              disabled={savingEdit || !editValue.trim()}
+                              className="shrink-0 text-xs font-medium hover:underline disabled:opacity-50"
+                              style={{ color: "var(--series-1)" }}
+                            >
+                              {savingEdit ? "Menyimpan…" : "Simpan"}
+                            </button>
+                            <button type="button" onClick={cancelEdit} disabled={savingEdit} className="shrink-0 text-xs hover:underline" style={{ color: "var(--text-muted)" }}>
+                              Batal
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span>{c.label}</span>
+                            <button type="button" onClick={() => startEdit(c)} className="shrink-0 text-xs font-normal hover:underline" style={{ color: "var(--series-1)" }}>
+                              Edit
+                            </button>
+                          </div>
+                        )}
+                      </td>
                       <td className="px-4 py-3">
                         <span className="text-xs font-medium" style={{ color: c.status === "Free" ? "var(--status-good)" : "var(--status-warning)" }}>
                           {c.status}

@@ -323,6 +323,22 @@ export async function createContainer(label: string): Promise<ContainerRow> {
   return rows[0];
 }
 
+// Renaming a container (e.g. a relabeled physical box) never touches
+// bookings.container_id — it's an FK, and every booking's containerLabel is
+// resolved via a live JOIN (see containerRows/LIST_SELECT above), not a
+// stored snapshot — so a rename here is immediately reflected everywhere a
+// booking references this container, past and future, with nothing else to
+// update.
+export async function updateContainer(id: number, label: string): Promise<ContainerRow> {
+  await ensureSchema();
+  const trimmed = label.trim();
+  if (!trimmed) throw new Error("Container ID wajib diisi");
+  const rows = await query<{ id: number }>(`UPDATE containers SET label = $1 WHERE id = $2 RETURNING id`, [trimmed, id]);
+  if (rows.length === 0) throw new Error("Container tidak ditemukan");
+  const updated = await containerRows("WHERE c.id = $1", [id]);
+  return updated[0];
+}
+
 // --- Resources (meeting_room / studio — bookable rooms, §7.2) -------------
 
 export async function listResources(moduleType: ModuleType): Promise<ResourceRow[]> {

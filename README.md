@@ -273,7 +273,13 @@ Open [http://localhost:3000](http://localhost:3000) — you'll be redirected to
     check rather than a lock. `/bookings/containers` is the lookup screen —
     search by Container ID, see which customer/booking currently holds it,
     add new containers one at a time (no bulk import in the MVP; admins add
-    them as needed).
+    them as needed), and rename one inline (`PATCH /api/containers/:id`,
+    `updateContainer`) for when a physical box gets relabeled — safe to do
+    even while the container is Assigned, since every booking's
+    `containerLabel` is resolved through the same live `JOIN` as
+    Free/Assigned status rather than stored as a snapshot, so a rename is
+    reflected immediately everywhere that container is referenced, past
+    bookings included.
   - **Meeting Room / Studio** (`resources` table; `start_time`/`end_time`/
     `resource_id` columns on `bookings`) are the two time-slot modules
     (`usesTimeSlots: true` in `MODULE_CONFIG`) — functionally identical to
