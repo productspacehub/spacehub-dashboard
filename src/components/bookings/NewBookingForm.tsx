@@ -7,6 +7,7 @@ import { useRouter } from "next/navigation";
 import { signOut, useSession } from "next-auth/react";
 import type { Addon, BookingDetail, Customer, ModuleType, RatePackage, ResourceRow } from "@/lib/bookings";
 import { BOOKING_SOURCES, MODULE_CONFIG, type BookingSource } from "@/lib/bookingConstants";
+import { useScrollToError } from "./useScrollToError";
 
 const inputStyle = {
   background: "var(--surface-1)",
@@ -64,6 +65,7 @@ export function NewBookingForm({
 
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const errorRef = useScrollToError<HTMLDivElement>(error);
 
   useEffect(() => {
     fetch(`/api/rates?module=${moduleType}`)
@@ -255,7 +257,7 @@ export function NewBookingForm({
         </h1>
 
         {error && (
-          <div className="mb-6 rounded-lg border px-4 py-3 text-sm" style={{ borderColor: "var(--status-critical)", color: "var(--status-critical)", background: "var(--surface-1)" }}>
+          <div ref={errorRef} className="mb-6 rounded-lg border px-4 py-3 text-sm" style={{ borderColor: "var(--status-critical)", color: "var(--status-critical)", background: "var(--surface-1)" }}>
             {error}
           </div>
         )}

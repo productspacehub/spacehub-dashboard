@@ -7,6 +7,7 @@ import Link from "next/link";
 import { signOut, useSession } from "next-auth/react";
 import type { Addon, BookingAddon, BookingDetail, ContainerRow, ResourceRow } from "@/lib/bookings";
 import { BOOKING_STATUSES, MODULE_CONFIG, MODULE_INDEX_HREF, PAYMENT_STATUSES, type BookingStatus, type PaymentStatus } from "@/lib/bookingConstants";
+import { useScrollToError } from "@/components/bookings/useScrollToError";
 
 const inputStyle = {
   background: "var(--background)",
@@ -40,6 +41,7 @@ export default function BookingDetailPage() {
   const [availableAddons, setAvailableAddons] = useState<Addon[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const errorRef = useScrollToError<HTMLDivElement>(error);
   const [saving, setSaving] = useState(false);
 
   const [form, setForm] = useState<{
@@ -202,7 +204,7 @@ export default function BookingDetailPage() {
         {loading && !booking && <p style={{ color: "var(--text-secondary)" }}>Loading…</p>}
 
         {error && (
-          <div className="mb-6 rounded-lg border px-4 py-3 text-sm" style={{ borderColor: "var(--status-critical)", color: "var(--status-critical)", background: "var(--surface-1)" }}>
+          <div ref={errorRef} className="mb-6 rounded-lg border px-4 py-3 text-sm" style={{ borderColor: "var(--status-critical)", color: "var(--status-critical)", background: "var(--surface-1)" }}>
             {error}
           </div>
         )}
