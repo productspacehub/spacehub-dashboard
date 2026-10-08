@@ -8,9 +8,12 @@ import { DeltaBadge } from "@/components/DeltaBadge";
 import { ModuleCard } from "@/components/ModuleCard";
 import { CASHIN_CATEGORY_COLORS, CASHIN_CATEGORY_ORDER, formatIdr } from "@/components/CashinDailyChart";
 import { MOVE_ACTIVITY_COLORS } from "@/components/MoveActivityChart";
+import { BOOKING_MODULE_COLORS } from "@/components/BookingActivityChart";
+import { MODULE_TYPES } from "@/lib/bookingConstants";
 import type { OccupancySnapshotWithDelta } from "@/lib/snapshots";
 import type { CashinResponse } from "@/app/api/cashin/route";
 import type { MoveActivityResponse } from "@/app/api/move-activity/route";
+import type { BookingActivityResponse } from "@/app/api/booking-activity/route";
 
 // 4 hours — this dashboard's data doesn't change fast enough to justify
 // polling more often, and occupancy/cash-in/move-activity all do non-trivial
@@ -71,6 +74,7 @@ export default function Home() {
   const occupancy = useAutoRefresh<OccupancySnapshotWithDelta>("/api/occupancy");
   const cashin = useAutoRefresh<CashinResponse>("/api/cashin");
   const moveActivity = useAutoRefresh<MoveActivityResponse>("/api/move-activity");
+  const bookingActivity = useAutoRefresh<BookingActivityResponse>("/api/booking-activity");
 
   return (
     <div className="min-h-screen px-6 py-10 sm:px-10">
@@ -89,6 +93,7 @@ export default function Home() {
                 occupancy.reload();
                 cashin.reload();
                 moveActivity.reload();
+                bookingActivity.reload();
               }}
               className="text-sm hover:underline"
               style={{ color: "var(--text-secondary)" }}
@@ -114,6 +119,9 @@ export default function Home() {
           Ringkasan modul
         </p>
 
+        <p className="mb-2.5 text-xs font-bold" style={{ color: "var(--text-secondary)" }}>
+          Self-Storage
+        </p>
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
           <ModuleCard
             label="Occupancy"
@@ -259,6 +267,70 @@ export default function Home() {
                 </div>
                 <p className="text-xs" style={{ color: "var(--text-muted)" }}>
                   Bulan berjalan · {moveActivity.data.bySite.length} site
+                </p>
+              </>
+            )}
+          </ModuleCard>
+        </div>
+
+        <p
+          className="mt-5 mb-2.5 text-xs font-bold"
+          style={{ color: "var(--text-secondary)", paddingTop: 20, borderTop: "1px solid var(--gridline)" }}
+        >
+          Lini Bisnis Lain
+        </p>
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <ModuleCard
+            label="Booking Activity"
+            dotColor={BOOKING_MODULE_COLORS.shared_storage}
+            href="/booking-activity"
+            loading={bookingActivity.loading && !!bookingActivity.data}
+          >
+            {bookingActivity.error && (
+              <p className="text-xs" style={{ color: "var(--status-critical)" }}>
+                {bookingActivity.error}
+              </p>
+            )}
+            {bookingActivity.loading && !bookingActivity.data && (
+              <p className="text-sm" style={{ color: "var(--text-secondary)" }}>
+                Loading…
+              </p>
+            )}
+            {bookingActivity.data && (
+              <>
+                <div className="flex flex-col items-start gap-1">
+                  <p className="text-3xl font-bold" style={{ color: "var(--text-primary)" }}>
+                    {formatIdr(bookingActivity.data.totalRevenue)}
+                  </p>
+                  <DeltaBadge
+                    value={
+                      bookingActivity.data.comparison.totalRevenue !== null &&
+                      bookingActivity.data.comparison.totalRevenue > 0
+                        ? ((bookingActivity.data.totalRevenue - bookingActivity.data.comparison.totalRevenue) /
+                            bookingActivity.data.comparison.totalRevenue) *
+                          100
+                        : null
+                    }
+                    format="percent"
+                    label="vs pace bulan lalu"
+                  />
+                </div>
+                <div
+                  className="flex h-2.5 w-full gap-0.5 overflow-hidden rounded-full"
+                  style={{ background: "var(--background)" }}
+                >
+                  {MODULE_TYPES.filter((m) => bookingActivity.data!.revenue[m] > 0).map((moduleType) => (
+                    <div
+                      key={moduleType}
+                      style={{
+                        width: `${(bookingActivity.data!.revenue[moduleType] / (bookingActivity.data!.totalRevenue || 1)) * 100}%`,
+                        background: BOOKING_MODULE_COLORS[moduleType],
+                      }}
+                    />
+                  ))}
+                </div>
+                <p className="text-xs" style={{ color: "var(--text-muted)" }}>
+                  Bulan berjalan · 4 lini bisnis
                 </p>
               </>
             )}

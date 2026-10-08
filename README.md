@@ -217,12 +217,46 @@ Open [http://localhost:3000](http://localhost:3000) — you'll be redirected to
     colors, one stack) with Move Out as a separate bar below it — mirroring
     the team's existing weekly "Activation vs Churn" report, just re-colored
     per category and without that report's trendlines.
+- `src/lib/bookingActivity.ts` / `/api/booking-activity` / `/booking-activity`
+  power the Booking Activity module — daily Booking Baru (count) and Revenue,
+  broken down by the four internal booking lines (Shared Storage, Co-working,
+  Meeting Room, Studio), with the same "Bulan ini / Bulan lalu / Bulan lain"
+  period selector as Cash-in and Move Activity. Unlike every other module on
+  this dashboard, it reads from this app's own Postgres `bookings` /
+  `booking_addons` tables (the same system of record as `/bookings`, see
+  below) rather than Storeganise — these four business lines have no
+  Storeganise equivalent at all. On the home page it's shown in its own
+  "Lini Bisnis Lain" section, visually separated from the three Storeganise-
+  backed Self-Storage modules above it, so it reads clearly as a different
+  business line rather than one more self-storage metric.
+  - **Booking Baru**: every booking created on a given Jakarta calendar day
+    (`created_at`), across all four modules, except `status = 'Cancelled'` —
+    a Pending Payment booking still counts as a real new booking, the same
+    way Move Activity's Move In excludes only rentals that never actually
+    happened.
+  - **Revenue**: booking price plus addon totals, for bookings where
+    `status <> 'Cancelled'` and `payment_status = 'Paid'`. **Important
+    caveat**: the `bookings` schema has no payment-date timestamp, only a
+    Paid/Unpaid flag — so unlike Cash-in (which uses Storeganise's real
+    payment date), revenue here is attributed to the day the booking was
+    *created*, not the day it was actually paid. A booking created on day N
+    and marked Paid a few days later still shows its revenue on day N. This
+    is called out directly in the methodology section on `/booking-activity`.
+  - Deliberately kept as a separate module from Cash-in rather than merged
+    into one combined revenue figure: different data source (Postgres vs.
+    Storeganise), different categorization semantics (module_type vs.
+    New Rent/Extension/Late Fee/etc.), and keeping them apart avoids any
+    regression risk to Cash-in's existing, already-validated logic.
 - **Bookings** (`/bookings`) — the SpaceHub Centralized Booking System MVP.
   Deliberately kept separate from the dashboard above, including off the
   home page: it's a different tool for a different purpose (admin-driven
   booking management), not one more occupancy/cash-in-style metric — reached
-  by going to `/bookings` directly, not linked from `/`. Unlike the modules
-  above, it isn't read from Storeganise at all: it's this app's own
+  by going to `/bookings` directly, not linked from `/`. **Not to be confused
+  with Booking Activity above** (`/booking-activity`, linked from `/`):
+  Booking Activity is a read-only metrics view over the same underlying
+  data, the same way Cash-in is a metrics view over Storeganise's invoices —
+  `/bookings` is where staff actually create and manage bookings. Unlike the
+  modules above, it isn't read from Storeganise at all: it's this app's own
   Postgres-backed system of record (`src/lib/bookings.ts`, schema in
   `src/lib/db.ts`'s `ensureSchema`), since shared storage/co-working/
   meeting-room/studio bookings are a separate business line with no
