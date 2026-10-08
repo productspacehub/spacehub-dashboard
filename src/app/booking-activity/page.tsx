@@ -219,7 +219,7 @@ export default function BookingActivityPage() {
               <div className="grid grid-cols-2 gap-5">
                 <div>
                   <p className="mb-2 text-[11px] font-bold tracking-wide uppercase" style={{ color: "var(--text-muted)" }}>
-                    Revenue
+                    Cash-in
                   </p>
                   <p className="mb-2 text-3xl font-bold" style={{ color: "var(--text-primary)" }}>
                     {formatIdr(data.totalRevenue)}
@@ -263,7 +263,7 @@ export default function BookingActivityPage() {
               style={{ background: "var(--surface-1)", borderColor: "var(--gridline)" }}
             >
               <p className="mb-1 text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
-                Revenue per hari
+                Cash-in per hari
               </p>
               <p className="mb-4 text-xs" style={{ color: "var(--text-muted)" }}>
                 {formatPeriodLabel(data.period.start, data.period.end)}, ditumpuk per lini bisnis
@@ -292,7 +292,7 @@ export default function BookingActivityPage() {
                         Booking Baru
                       </th>
                       <th className="px-4 py-3 text-right font-medium" style={{ color: "var(--text-secondary)" }}>
-                        Revenue
+                        Cash-in
                       </th>
                     </tr>
                   </thead>
@@ -346,7 +346,7 @@ export default function BookingActivityPage() {
                 dari tanggal booking-nya berlaku, bukan tanggal entry-nya diketik ke sistem — supaya tidak
                 menumpuk semua di satu hari kalau staff input banyak booking sekaligus dalam satu sesi.
                 <br />
-                <b style={{ color: "var(--text-secondary)" }}>Revenue</b>: harga booking + addon, untuk booking
+                <b style={{ color: "var(--text-secondary)" }}>Cash-in</b>: harga booking + addon, untuk booking
                 yang statusnya bukan <code>Cancelled</code> dan <code>payment_status</code>-nya{" "}
                 <code>Paid</code>, memakai basis tanggal yang sama (<code>start_date</code>).
               </p>
@@ -354,11 +354,12 @@ export default function BookingActivityPage() {
                 className="mt-4 rounded-lg border p-3 text-xs leading-relaxed"
                 style={{ borderColor: "var(--status-warning)", background: "rgba(250, 183, 18, 0.08)", color: "var(--text-secondary)" }}
               >
-                <b style={{ color: "var(--status-warning)" }}>Catatan soal Revenue:</b> data booking tidak
-                menyimpan tanggal pembayaran aktual — hanya status Paid/Unpaid. Jadi revenue di sini ditampilkan
-                pada hari booking <i>mulai</i>, bukan hari booking itu <i>dibayar</i>. Kalau sebuah booking dibayar
-                di hari yang berbeda dari tanggal mulainya, revenue-nya tetap muncul di hari mulai tsb, bukan hari
-                pelunasan — berbeda dengan Cash-in (Storeganise) yang memakai tanggal pembayaran riil.
+                <b style={{ color: "var(--status-warning)" }}>Catatan soal Cash-in di halaman ini:</b> data booking
+                tidak menyimpan tanggal pembayaran aktual — hanya status Paid/Unpaid. Jadi angka cash-in di sini
+                ditampilkan pada hari booking <i>mulai</i>, bukan hari booking itu <i>dibayar</i>. Kalau sebuah
+                booking dibayar di hari yang berbeda dari tanggal mulainya, angkanya tetap muncul di hari mulai
+                tsb, bukan hari pelunasan — berbeda dengan modul Cash-in (Storeganise) yang memakai tanggal
+                pembayaran riil.
               </div>
             </section>
 

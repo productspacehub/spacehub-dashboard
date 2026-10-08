@@ -218,10 +218,15 @@ Open [http://localhost:3000](http://localhost:3000) — you'll be redirected to
     the team's existing weekly "Activation vs Churn" report, just re-colored
     per category and without that report's trendlines.
 - `src/lib/bookingActivity.ts` / `/api/booking-activity` / `/booking-activity`
-  power the Booking Activity module — daily Booking Baru (count) and Revenue,
-  broken down by the four internal booking lines (Shared Storage, Co-working,
-  Meeting Room, Studio), with the same "Bulan ini / Bulan lalu / Bulan lain"
-  period selector as Cash-in and Move Activity. Unlike every other module on
+  power the Booking Activity module — daily Booking Baru (count) and Cash-in
+  (revenue), broken down by the four internal booking lines (Shared Storage,
+  Co-working, Meeting Room, Studio). The revenue figure is labeled "Cash-in"
+  in the UI — same label as the Storeganise-based Cash-in module, since
+  they're conceptually the same kind of number even though they come from
+  different pipelines; internally the code still uses `revenue` /
+  `totalRevenue` field names, only the UI-facing label changed. Uses the same
+  "Bulan ini / Bulan lalu / Bulan lain" period selector as Cash-in and Move
+  Activity. Unlike every other module on
   this dashboard, it reads from this app's own Postgres `bookings` /
   `booking_addons` tables (the same system of record as `/bookings`, see
   below) rather than Storeganise — these four business lines have no
@@ -240,20 +245,22 @@ Open [http://localhost:3000](http://localhost:3000) — you'll be redirected to
     one sitting, which would cluster everything on the data-entry day under
     a `created_at` grouping instead of reflecting the days the bookings
     themselves are actually for.
-  - **Revenue**: booking price plus addon totals, for bookings where
+  - **Cash-in** (labeled "Cash-in" in the UI, `revenue`/`totalRevenue`
+    internally): booking price plus addon totals, for bookings where
     `status <> 'Cancelled'` and `payment_status = 'Paid'`, grouped by the
     same `start_date` basis as Booking Baru for a consistent time axis.
     **Important caveat**: the `bookings` schema has no payment-date
-    timestamp, only a Paid/Unpaid flag — so unlike Cash-in (which uses
-    Storeganise's real payment date), revenue here is attributed to the day
-    the booking *starts*, not the day it was actually paid, if those differ.
-    This is called out directly in the methodology section on
-    `/booking-activity`.
-  - Deliberately kept as a separate module from Cash-in rather than merged
-    into one combined revenue figure: different data source (Postgres vs.
-    Storeganise), different categorization semantics (module_type vs.
-    New Rent/Extension/Late Fee/etc.), and keeping them apart avoids any
-    regression risk to Cash-in's existing, already-validated logic.
+    timestamp, only a Paid/Unpaid flag — so unlike the Storeganise-based
+    Cash-in module (which uses Storeganise's real payment date), this figure
+    is attributed to the day the booking *starts*, not the day it was
+    actually paid, if those differ. This is called out directly in the
+    methodology section on `/booking-activity`.
+  - Deliberately kept as a separate module from the Storeganise-based
+    Cash-in rather than merged into one combined figure: different data
+    source (Postgres vs. Storeganise), different categorization semantics
+    (module_type vs. New Rent/Extension/Late Fee/etc.), and keeping them
+    apart avoids any regression risk to Cash-in's existing, already-
+    validated logic.
 - **Bookings** (`/bookings`) — the SpaceHub Centralized Booking System MVP.
   Deliberately kept separate from the dashboard above, including off the
   home page: it's a different tool for a different purpose (admin-driven
