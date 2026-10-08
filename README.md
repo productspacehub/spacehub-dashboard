@@ -229,19 +229,26 @@ Open [http://localhost:3000](http://localhost:3000) — you'll be redirected to
   "Lini Bisnis Lain" section, visually separated from the three Storeganise-
   backed Self-Storage modules above it, so it reads clearly as a different
   business line rather than one more self-storage metric.
-  - **Booking Baru**: every booking created on a given Jakarta calendar day
-    (`created_at`), across all four modules, except `status = 'Cancelled'` —
-    a Pending Payment booking still counts as a real new booking, the same
-    way Move Activity's Move In excludes only rentals that never actually
-    happened.
+  - **Booking Baru**: every booking whose `start_date` falls on a given day,
+    across all four modules, except `status = 'Cancelled'` — a Pending
+    Payment booking still counts as a real new booking, the same way Move
+    Activity's Move In excludes only rentals that never actually happened.
+    Deliberately grouped by `start_date` (when the booking is *for*) rather
+    than `created_at` (when the entry was typed into the system, which
+    cannot be backdated — see `createBooking` in `src/lib/bookings.ts`):
+    staff routinely enter a batch of bookings for several different dates in
+    one sitting, which would cluster everything on the data-entry day under
+    a `created_at` grouping instead of reflecting the days the bookings
+    themselves are actually for.
   - **Revenue**: booking price plus addon totals, for bookings where
-    `status <> 'Cancelled'` and `payment_status = 'Paid'`. **Important
-    caveat**: the `bookings` schema has no payment-date timestamp, only a
-    Paid/Unpaid flag — so unlike Cash-in (which uses Storeganise's real
-    payment date), revenue here is attributed to the day the booking was
-    *created*, not the day it was actually paid. A booking created on day N
-    and marked Paid a few days later still shows its revenue on day N. This
-    is called out directly in the methodology section on `/booking-activity`.
+    `status <> 'Cancelled'` and `payment_status = 'Paid'`, grouped by the
+    same `start_date` basis as Booking Baru for a consistent time axis.
+    **Important caveat**: the `bookings` schema has no payment-date
+    timestamp, only a Paid/Unpaid flag — so unlike Cash-in (which uses
+    Storeganise's real payment date), revenue here is attributed to the day
+    the booking *starts*, not the day it was actually paid, if those differ.
+    This is called out directly in the methodology section on
+    `/booking-activity`.
   - Deliberately kept as a separate module from Cash-in rather than merged
     into one combined revenue figure: different data source (Postgres vs.
     Storeganise), different categorization semantics (module_type vs.

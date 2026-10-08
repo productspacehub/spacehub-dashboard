@@ -341,12 +341,14 @@ export default function BookingActivityPage() {
               </p>
               <p className="text-xs leading-relaxed" style={{ color: "var(--text-muted)" }}>
                 <b style={{ color: "var(--text-secondary)" }}>Booking Baru</b>: semua booking di 4 lini bisnis (
-                {MODULE_TYPES.map((m) => MODULE_LABELS[m]).join(", ")}) yang dibuat pada hari tsb (
-                <code>created_at</code>), kecuali yang statusnya <code>Cancelled</code>.
+                {MODULE_TYPES.map((m) => MODULE_LABELS[m]).join(", ")}) yang tanggal mulainya (
+                <code>start_date</code>) jatuh pada hari tsb, kecuali yang statusnya <code>Cancelled</code>. Dihitung
+                dari tanggal booking-nya berlaku, bukan tanggal entry-nya diketik ke sistem — supaya tidak
+                menumpuk semua di satu hari kalau staff input banyak booking sekaligus dalam satu sesi.
                 <br />
                 <b style={{ color: "var(--text-secondary)" }}>Revenue</b>: harga booking + addon, untuk booking
                 yang statusnya bukan <code>Cancelled</code> dan <code>payment_status</code>-nya{" "}
-                <code>Paid</code>.
+                <code>Paid</code>, memakai basis tanggal yang sama (<code>start_date</code>).
               </p>
               <div
                 className="mt-4 rounded-lg border p-3 text-xs leading-relaxed"
@@ -354,8 +356,8 @@ export default function BookingActivityPage() {
               >
                 <b style={{ color: "var(--status-warning)" }}>Catatan soal Revenue:</b> data booking tidak
                 menyimpan tanggal pembayaran aktual — hanya status Paid/Unpaid. Jadi revenue di sini ditampilkan
-                pada hari booking <i>dibuat</i>, bukan hari booking itu <i>dibayar</i>. Kalau sebuah booking dibuat
-                lalu dibayar beberapa hari kemudian, revenue-nya tetap muncul di hari pembuatan, bukan hari
+                pada hari booking <i>mulai</i>, bukan hari booking itu <i>dibayar</i>. Kalau sebuah booking dibayar
+                di hari yang berbeda dari tanggal mulainya, revenue-nya tetap muncul di hari mulai tsb, bukan hari
                 pelunasan — berbeda dengan Cash-in (Storeganise) yang memakai tanggal pembayaran riil.
               </div>
             </section>
