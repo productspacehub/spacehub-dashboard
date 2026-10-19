@@ -217,11 +217,11 @@ export default function BookingActivityPage() {
                 {data.isCurrentMonth ? `Dibanding pace ${comparisonMonthShort}` : `Dibanding ${comparisonMonthShort}`}
               </p>
               <div className="grid grid-cols-2 gap-5">
-                <div>
+                <div className="min-w-0">
                   <p className="mb-2 text-[11px] font-bold tracking-wide uppercase" style={{ color: "var(--text-muted)" }}>
                     Cash-in
                   </p>
-                  <p className="mb-2 text-3xl font-bold" style={{ color: "var(--text-primary)" }}>
+                  <p className="mb-2 text-2xl font-bold break-words sm:text-3xl" style={{ color: "var(--text-primary)" }}>
                     {formatIdr(data.totalRevenue)}
                   </p>
                   <DeltaBadge value={deltaPct(data.totalRevenue, data.comparison.totalRevenue)} format="percent" />
@@ -230,11 +230,11 @@ export default function BookingActivityPage() {
                     {comparisonMonthShort}
                   </p>
                 </div>
-                <div>
+                <div className="min-w-0">
                   <p className="mb-2 text-[11px] font-bold tracking-wide uppercase" style={{ color: "var(--text-muted)" }}>
                     Booking Baru
                   </p>
-                  <p className="mb-2 text-3xl font-bold" style={{ color: "var(--text-primary)" }}>
+                  <p className="mb-2 text-2xl font-bold break-words sm:text-3xl" style={{ color: "var(--text-primary)" }}>
                     {data.totalCount}
                   </p>
                   <DeltaBadge value={deltaPct(data.totalCount, data.comparison.totalCount)} format="percent" />
