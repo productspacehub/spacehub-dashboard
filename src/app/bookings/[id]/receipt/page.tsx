@@ -75,7 +75,7 @@ export default function BookingReceiptPage() {
         {booking && booking.paymentStatus === "Paid" && (
           <div className="rounded-2xl border border-gray-300 bg-white p-8 text-gray-900 print:rounded-none print:border-0 print:p-0 shadow-sm print:shadow-none">
             <div className="mb-8 flex items-start justify-between">
-              <Image src="/spacehub-logo.webp" alt="SpaceHub" width={140} height={42} />
+              <Image src="/spacehub-logo-dark.webp" alt="SpaceHub" width={140} height={42} />
               <div className="text-right">
                 <p className="text-lg font-bold">KWITANSI PEMBAYARAN</p>
                 <p className="text-sm text-gray-500">Booking #{booking.id}</p>
@@ -145,10 +145,14 @@ export default function BookingReceiptPage() {
               {booking.paymentReference && <p className="mt-1 text-gray-600">Referensi: {booking.paymentReference}</p>}
             </div>
 
-            <p className="text-xs text-gray-400">
-              Diproses oleh {booking.createdBy ?? "admin"} · Kwitansi ini dihasilkan otomatis dari sistem booking
-              SpaceHub.
-            </p>
+            <div className="border-t border-gray-200 pt-4">
+              <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-gray-500">
+                <span>Website: spacehub.id</span>
+                <span>WA: +62 851 7229 9309</span>
+                <span>Email: hello@spacehub.id</span>
+                <span>IG: spacehub.storage</span>
+              </div>
+            </div>
           </div>
         )}
       </div>
