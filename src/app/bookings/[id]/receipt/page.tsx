@@ -15,6 +15,48 @@ function formatDateLabel(dateStr: string): string {
   return new Date(`${dateStr}T00:00:00`).toLocaleDateString("id-ID", { day: "numeric", month: "long", year: "numeric" });
 }
 
+// Plain hand-drawn outline icons for the contact row below — generic shapes
+// (globe/handset/envelope/camera), not brand logos, so there's nothing to
+// license and no icon library to add as a dependency for four small marks.
+const iconProps = { width: 14, height: 14, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 1.8, strokeLinecap: "round" as const, strokeLinejoin: "round" as const };
+
+function GlobeIcon() {
+  return (
+    <svg {...iconProps}>
+      <circle cx="12" cy="12" r="9" />
+      <ellipse cx="12" cy="12" rx="4" ry="9" />
+      <line x1="3" y1="12" x2="21" y2="12" />
+    </svg>
+  );
+}
+
+function PhoneIcon() {
+  return (
+    <svg {...iconProps}>
+      <path d="M6.6 4h3l1.5 4-2 1.6a12.3 12.3 0 0 0 5.3 5.3l1.6-2 4 1.5v3c0 1.1-.9 2-2 2C9.6 19.4 4.6 14.4 4.6 6c0-1.1.9-2 2-2z" />
+    </svg>
+  );
+}
+
+function MailIcon() {
+  return (
+    <svg {...iconProps}>
+      <rect x="3" y="5" width="18" height="14" rx="2" />
+      <path d="M3 7l9 6 9-6" />
+    </svg>
+  );
+}
+
+function CameraIcon() {
+  return (
+    <svg {...iconProps}>
+      <rect x="3" y="7" width="18" height="13" rx="2" />
+      <path d="M8 7l1.3-2.3h5.4L16 7" />
+      <circle cx="12" cy="13.5" r="3.3" />
+    </svg>
+  );
+}
+
 // Printed with the browser's own Print dialog ("Save as PDF") rather than a
 // server-generated PDF — no new dependency, and every browser already does
 // this well. The receipt card is always styled light (not the app's dark
@@ -146,11 +188,19 @@ export default function BookingReceiptPage() {
             </div>
 
             <div className="border-t border-gray-200 pt-4">
-              <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-gray-500">
-                <span>Website: spacehub.id</span>
-                <span>WA: +62 851 7229 9309</span>
-                <span>Email: hello@spacehub.id</span>
-                <span>IG: spacehub.storage</span>
+              <div className="flex flex-wrap gap-x-4 gap-y-1.5 text-xs text-gray-500">
+                <span className="inline-flex items-center gap-1.5">
+                  <GlobeIcon /> spacehub.id
+                </span>
+                <span className="inline-flex items-center gap-1.5">
+                  <PhoneIcon /> +62 851 7229 9309
+                </span>
+                <span className="inline-flex items-center gap-1.5">
+                  <MailIcon /> hello@spacehub.id
+                </span>
+                <span className="inline-flex items-center gap-1.5">
+                  <CameraIcon /> spacehub.storage
+                </span>
               </div>
             </div>
           </div>
