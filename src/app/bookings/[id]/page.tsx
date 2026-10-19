@@ -215,10 +215,17 @@ export default function BookingDetailPage() {
               <h1 className="text-xl font-semibold" style={{ color: "var(--text-primary)" }}>
                 Booking #{booking.id}
               </h1>
-              <p className="text-xs" style={{ color: "var(--text-muted)" }}>
-                {booking.source} · dibuat {new Date(booking.createdAt).toLocaleDateString("id-ID")}
-                {booking.createdBy ? ` oleh ${booking.createdBy}` : ""}
-              </p>
+              <div className="text-right">
+                <p className="text-xs" style={{ color: "var(--text-muted)" }}>
+                  {booking.source} · dibuat {new Date(booking.createdAt).toLocaleDateString("id-ID")}
+                  {booking.createdBy ? ` oleh ${booking.createdBy}` : ""}
+                </p>
+                {booking.paymentStatus === "Paid" && (
+                  <Link href={`/bookings/${booking.id}/receipt`} className="text-xs hover:underline" style={{ color: "var(--series-1)" }}>
+                    Cetak kwitansi →
+                  </Link>
+                )}
+              </div>
             </div>
 
             {booking.isOverdue && booking.endDate && (

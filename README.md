@@ -446,6 +446,27 @@ Open [http://localhost:3000](http://localhost:3000) — you'll be redirected to
     (`payment_reference`) against the booking; there's no auto-generation or
     webhook reconciliation. Direct Xendit API integration is a deliberately
     deferred Phase 2 enhancement, not required to launch.
+  - **Payment receipt** (`/bookings/:id/receipt`) — a "Cetak kwitansi" link
+    on the detail page, shown only once `paymentStatus` is Paid, opens a
+    printable receipt built entirely from data the booking already has (no
+    new fields): customer, module-appropriate service details (room+time
+    for Meeting Room/Studio, container for Shared Storage, date range
+    otherwise), the price/addons breakdown and total, and the payment
+    reference. Printed via the browser's own Print dialog ("Save as PDF")
+    rather than a server-generated PDF file — no new dependency, and every
+    browser already does this well; the admin saves or prints it and
+    forwards it to the customer themselves (there's still no customer-
+    facing/self-service surface in this app). The receipt card is always
+    styled light (plain white background, black text, via `print:bg-white`
+    on the page wrapper rather than the usual `var(--background)` inline
+    style, which an inline style can't be overridden by a `print:` utility
+    class) regardless of the rest of the app's fixed dark theme — print
+    and screen preview always match, since the light styling *is* what
+    prints, not a separate stylesheet to keep in sync. Opening the receipt
+    URL directly for a booking that isn't Paid shows a plain explanatory
+    message instead of a receipt. The reference number is simply the
+    booking's own id (`Booking #123`) — no separate sequential invoice
+    numbering scheme.
   - Co-working's "headcount check" availability (§7.1) is informational
     only in the MVP — `getActiveHeadcountToday`/`GET /api/bookings/headcount`
     counts today's Active bookings for a module (shown on
