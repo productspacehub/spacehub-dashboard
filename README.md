@@ -300,6 +300,47 @@ Open [http://localhost:3000](http://localhost:3000) — you'll be redirected to
   - "Detail teknis" (at the top and open in that zero case, collapsed at the
     bottom otherwise) lists which customFields keys came back, how many are
     filled, and the value *types* — key names and types only, never values.
+- `src/lib/ktpPilot.ts` / `src/lib/ktpOcr.ts` / `src/lib/nik.ts` /
+  `/api/id-check/pilot/*` / `/id-check/pilot` — **KTP OCR pilot**: reads a
+  random sample of 50 active tenants' KTP photos to measure whether
+  self-hosted OCR is accurate enough to derive age / sex / region for
+  reporting. Approved internally before it was built. Restricted to the exact
+  emails in `PILOT_ALLOWED_EMAILS` (unset = nobody), on top of normal login;
+  the link on `/id-check` only shows for them.
+  - **What is and isn't kept:** the photo is downloaded, read in memory, and
+    discarded. Only the derived result goes to the `ktp_ocr_pilot` table:
+    status, birth date, sex, province/regency code, a masked NIK (first 4 and
+    last 4 digits — `maskNik`), OCR confidence, and the reviewer's verdict.
+    The full NIK is never stored or sent to the browser.
+  - **OCR:** tesseract.js (Apache-2.0) with `eng` language data from the
+    `@tesseract.js-data/eng` package, running inside the serverless function
+    — no third-party OCR service, nothing downloaded at runtime. Images are
+    EXIF-oriented, greyscaled, contrast-normalized and resized with `sharp`.
+    Passes stop at the first valid NIK: full card → digits-only re-read of
+    the area right of the "NIK" label → the card rotated 90°/270°/180°.
+    Passports (MRZ / "PASPOR") are detected and skipped. Because tesseract
+    spawns its worker and loads its wasm/language files by runtime path,
+    `next.config.ts` marks it external and lists those files in
+    `outputFileTracingIncludes`.
+  - **NIK → data:** `extractNik` tolerates common misreads on the NIK line
+    (O→0, I→1, spaces) and only accepts a 16-digit run whose date is real
+    and whose province code exists. Women's birth day is +40; a two-digit
+    year is the 2000s only if that makes the holder 17+. Region names come
+    from `idn-area-data` (Kemendagri codes; data © its contributors under
+    the Open Database License, read from the package at runtime, not copied
+    into this repo).
+  - **File download:** the `passport-ktp` value's exact shape wasn't
+    documented anywhere readable, so only absolute URLs are followed (a
+    string, an object's `url`/`href`/…, or the first element of an array).
+    Anything else is recorded as "Bentuk field belum didukung" with the
+    value's *shape*, never guessed. The Storeganise API key is only sent
+    when the URL is on the Storeganise instance itself.
+  - **Metrics:** Terbaca = valid NIK found ÷ KTPs OCR'd; Akurasi = correct ÷
+    verified; Benar dari semua = correct ÷ KTPs OCR'd. Reviewers mark a
+    result correct only if birth date, sex, regency and the visible NIK
+    digits all match the photo in Storeganise.
+  - Tested only against synthetic, fictional cards and a mock Storeganise
+    before first use on real data.
 - **Bookings** (`/bookings`) — the SpaceHub Centralized Booking System MVP.
   Deliberately kept separate from the dashboard above, including off the
   home page: it's a different tool for a different purpose (admin-driven

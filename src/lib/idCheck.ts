@@ -76,7 +76,7 @@ type OccupiedRental = {
 
 // The File field's value shape isn't documented anywhere we could read — so
 // "has an ID" means "has any non-empty value", whichever shape it is.
-function hasValue(value: unknown): boolean {
+export function hasValue(value: unknown): boolean {
   if (value == null) return false;
   if (typeof value === "string") return value.trim() !== "";
   if (Array.isArray(value)) return value.length > 0;
@@ -84,7 +84,7 @@ function hasValue(value: unknown): boolean {
   return Boolean(value);
 }
 
-function shapeOf(value: unknown): string {
+export function shapeOf(value: unknown): string {
   if (value === null) return "null";
   if (Array.isArray(value)) return value.length === 0 ? "array(empty)" : `array<${shapeOf(value[0])}>`;
   if (typeof value === "object") {

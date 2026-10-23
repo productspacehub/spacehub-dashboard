@@ -115,7 +115,7 @@ function DiagnosticsPanel({
 
 export default function IdCheckPage() {
   const { data: session } = useSession();
-  const [data, setData] = useState<IdCheckReport | null>(null);
+  const [data, setData] = useState<(IdCheckReport & { pilotAllowed?: boolean }) | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const abortRef = useRef<AbortController | null>(null);
@@ -130,7 +130,7 @@ export default function IdCheckPage() {
       const res = await fetch("/api/id-check", { signal: controller.signal });
       const body = await res.json();
       if (!res.ok) throw new Error(body?.error ?? `Request failed with status ${res.status}`);
-      setData(body as IdCheckReport);
+      setData(body as IdCheckReport & { pilotAllowed?: boolean });
       setError(null);
     } catch (err) {
       if (err instanceof DOMException && err.name === "AbortError") return;
@@ -185,6 +185,11 @@ export default function IdCheckPage() {
           <Link href="/occupancy" className="text-sm hover:underline" style={{ color: "var(--series-1)" }}>
             ← Back to occupancy
           </Link>
+          {data?.pilotAllowed && (
+            <Link href="/id-check/pilot" className="text-sm hover:underline" style={{ color: "var(--series-1)" }}>
+              Pilot OCR KTP →
+            </Link>
+          )}
           {loading && data && (
             <span className="inline-flex items-center gap-2 text-xs" style={{ color: "var(--text-muted)" }}>
               <span

@@ -208,6 +208,30 @@ async function createSchema(): Promise<void> {
       -- from before quantity was added, and CREATE TABLE IF NOT EXISTS is a
       -- no-op against an existing table — it wouldn't backfill the column.
       ALTER TABLE booking_addons ADD COLUMN IF NOT EXISTS quantity INTEGER NOT NULL DEFAULT 1;
+
+      -- KTP OCR pilot: one row per sampled tenant. Derived fields and the
+      -- reviewer's verdict only — never the image and never the full NIK
+      -- (nik_masked keeps region code + serial, see maskNik).
+      CREATE TABLE IF NOT EXISTS ktp_ocr_pilot (
+        id             SERIAL PRIMARY KEY,
+        owner_id       TEXT NOT NULL UNIQUE,
+        tenant_name    TEXT NOT NULL,
+        status         TEXT NOT NULL,
+        ocr_pass       TEXT,
+        confidence     REAL,
+        nik_masked     TEXT,
+        birth_date     DATE,
+        sex            TEXT,
+        province_code  TEXT,
+        regency_code   TEXT,
+        detail         TEXT,
+        duration_ms    INTEGER,
+        processed_by   TEXT,
+        processed_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+        verdict        TEXT CHECK (verdict IN ('correct', 'wrong')),
+        verified_by    TEXT,
+        verified_at    TIMESTAMPTZ
+      );
     `);
     await client.query("COMMIT");
   } catch (err) {

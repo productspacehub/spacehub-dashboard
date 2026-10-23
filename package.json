@@ -9,11 +9,15 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@tesseract.js-data/eng": "^1.0.0",
+    "idn-area-data": "^4.0.1",
     "next": "16.3.4",
     "next-auth": "^5.0.0-beta.32",
     "pg": "^8.23.0",
     "react": "19.2.8",
-    "react-dom": "19.2.8"
+    "react-dom": "19.2.8",
+    "sharp": "^0.35.5",
+    "tesseract.js": "^7.0.0"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
