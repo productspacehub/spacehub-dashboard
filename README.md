@@ -274,14 +274,23 @@ Open [http://localhost:3000](http://localhost:3000) — you'll be redirected to
     field's value never leaves the server — the API returns a
     present/missing/unknown status per tenant, nothing more. Tenants who do
     have an ID are counted but never listed.
-  - Reads `customFields` from `unit-rentals?include=owner` when the include
-    carries it; otherwise falls back to `GET /v1/admin/users/:id` per tenant
-    (8 at a time). Whether the include carries custom fields hasn't been
-    confirmed against the real API yet.
+  - Trusts `unit-rentals?include=owner` only when its `customFields`
+    actually contains the ID key; otherwise falls back to
+    `GET /v1/admin/users/:id` per tenant (8 at a time). The first version
+    trusted any `customFields` object on the included owner, and in
+    production every tenant read as "belum ada" — consistent with the
+    include returning a partial `customFields` (reproduced against a mock;
+    not yet confirmed against the real API).
+  - The key is matched loosely (case and separators ignored), since the
+    admin UI label and the API key can differ (`passport-ktp` vs
+    `passport_ktp`).
   - A failed user lookup is reported as "Tidak bisa dicek", never as
     "belum ada". If zero tenants are detected with an ID at all, the page
-    shows a warning instead of presenting it as a real 0% — that's far more
-    likely to mean the field isn't coming back from the API.
+    shows a warning instead of presenting it as a real 0%.
+  - "Detail teknis" at the bottom of the page (auto-opened in that zero
+    case) lists which customFields keys the API actually returned, where
+    from, how many are filled, and the value *types* — never the values —
+    to debug a field-name mismatch without opening Storeganise.
 - **Bookings** (`/bookings`) — the SpaceHub Centralized Booking System MVP.
   Deliberately kept separate from the dashboard above, including off the
   home page: it's a different tool for a different purpose (admin-driven

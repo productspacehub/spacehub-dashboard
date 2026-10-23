@@ -153,7 +153,8 @@ export default function IdCheckPage() {
               >
                 <b style={{ color: "var(--status-warning)" }}>Cek dulu sebelum menindaklanjuti:</b> tidak ada satu pun
                 tenant aktif yang terdeteksi punya KTP/paspor. Kemungkinan besar field <code>passport-ktp</code> tidak
-                terbaca dari API Storeganise, bukan berarti semua tenant benar-benar belum upload.
+                terbaca dari API Storeganise, bukan berarti semua tenant benar-benar belum upload. Lihat
+                &quot;Detail teknis&quot; di bagian bawah halaman untuk key apa saja yang sebenarnya terbaca.
               </div>
             )}
 
@@ -292,6 +293,62 @@ export default function IdCheckPage() {
                 Storeganise, jadi tidak dihitung sebagai &quot;belum ada&quot;.
               </p>
             </section>
+
+            <details
+              open={suspiciousZero}
+              className="mt-8 rounded-2xl border p-6 text-xs"
+              style={{ background: "var(--surface-1)", borderColor: "var(--gridline)", color: "var(--text-muted)" }}
+            >
+              <summary className="cursor-pointer text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
+                Detail teknis (untuk debugging)
+              </summary>
+              <p className="mt-3 leading-relaxed">
+                Hanya nama key dan tipe isinya — tidak ada nilai/isi field yang ditampilkan. Key yang dipakai sebagai
+                KTP/paspor:{" "}
+                <b style={{ color: "var(--text-secondary)" }}>
+                  {data.diagnostics.matchedKeys.length > 0 ? data.diagnostics.matchedKeys.join(", ") : "tidak ditemukan"}
+                </b>
+                .
+              </p>
+              <p className="mt-2 leading-relaxed">
+                Dari <code>include=owner</code>: {data.diagnostics.includeOwnersWithCustomFields} dari{" "}
+                {data.diagnostics.ownersFromInclude} owner membawa <code>customFields</code>. Profil user lengkap
+                diambil untuk {data.diagnostics.usersFetched} tenant, {data.diagnostics.fetchedUsersWithCustomFields}{" "}
+                di antaranya punya <code>customFields</code>.
+              </p>
+              {data.diagnostics.customFieldKeys.length === 0 ? (
+                <p className="mt-2">Tidak ada satu pun key customFields yang terbaca dari API.</p>
+              ) : (
+                <div className="mt-3 overflow-x-auto rounded-xl border" style={{ borderColor: "var(--gridline)" }}>
+                  <table className="w-full text-left">
+                    <thead>
+                      <tr style={{ borderBottom: "1px solid var(--gridline)" }}>
+                        {["Sumber", "Key", "Muncul di", "Terisi", "Tipe isi"].map((h) => (
+                          <th key={h} className="px-3 py-2 font-medium whitespace-nowrap" style={{ color: "var(--text-secondary)" }}>
+                            {h}
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {data.diagnostics.customFieldKeys.map((k) => (
+                        <tr key={`${k.source}:${k.key}`} style={{ borderBottom: "1px solid var(--gridline)" }}>
+                          <td className="px-3 py-1.5 whitespace-nowrap">{k.source === "include" ? "include=owner" : "profil user"}</td>
+                          <td className="px-3 py-1.5 whitespace-nowrap">
+                            <code>{k.key}</code>
+                          </td>
+                          <td className="px-3 py-1.5">{k.records}</td>
+                          <td className="px-3 py-1.5">{k.nonEmpty}</td>
+                          <td className="px-3 py-1.5">
+                            <code>{k.shapes.join(" | ")}</code>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </details>
 
             <p className="mt-8 text-xs" style={{ color: "var(--text-muted)" }}>
               Last updated {new Date(data.generatedAt).toLocaleTimeString()}
