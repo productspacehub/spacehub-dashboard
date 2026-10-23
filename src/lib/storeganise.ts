@@ -231,8 +231,9 @@ export type StoreganiseUser = {
   customFields?: Record<string, unknown>;
 };
 
-export async function fetchUserById(userId: string): Promise<StoreganiseUser> {
+export async function fetchUserById(userId: string, params?: Record<string, string>): Promise<StoreganiseUser> {
   const url = new URL(`${BASE_URL}/v1/admin/users/${userId}`);
+  for (const [k, v] of Object.entries(params ?? {})) url.searchParams.set(k, v);
 
   const res = await fetch(url, { headers: authHeaders(), cache: "no-store" });
   if (!res.ok) {

@@ -274,23 +274,29 @@ Open [http://localhost:3000](http://localhost:3000) — you'll be redirected to
     field's value never leaves the server — the API returns a
     present/missing/unknown status per tenant, nothing more. Tenants who do
     have an ID are counted but never listed.
-  - Trusts `unit-rentals?include=owner` only when its `customFields`
-    actually contains the ID key; otherwise falls back to
-    `GET /v1/admin/users/:id` per tenant (8 at a time). The first version
-    trusted any `customFields` object on the included owner, and in
-    production every tenant read as "belum ada" — consistent with the
-    include returning a partial `customFields` (reproduced against a mock;
-    not yet confirmed against the real API).
+  - Looks for the key on the unit rental's own `customFields` and on the
+    included owner's (Storeganise supports custom fields on both rentals and
+    users), and only when neither has a non-empty value falls back to
+    `GET /v1/admin/users/:id` per tenant (8 at a time).
+  - **Unresolved as of this writing:** in production, none of 285 tenants
+    came back with `customFields` on either the included owner or the full
+    user record, so where the API exposes `passport-ktp` (rental custom
+    fields, a different property name, a "secret" field hidden from the API,
+    or an extra request parameter) is still being diagnosed via the panel
+    below.
   - The key is matched loosely (case and separators ignored), since the
     admin UI label and the API key can differ (`passport-ktp` vs
     `passport_ktp`).
   - A failed user lookup is reported as "Tidak bisa dicek", never as
     "belum ada". If zero tenants are detected with an ID at all, the page
     shows a warning instead of presenting it as a real 0%.
-  - "Detail teknis" at the bottom of the page (auto-opened in that zero
-    case) lists which customFields keys the API actually returned, where
-    from, how many are filled, and the value *types* — never the values —
-    to debug a field-name mismatch without opening Storeganise.
+  - "Detail teknis" (moved to the top of the page and auto-opened in that
+    zero case, collapsed at the bottom otherwise) lists, per source (rental /
+    included owner / full user): which customFields keys came back and how
+    many are filled, every top-level property name, any nested property
+    path whose name looks ID/document/file-related, and — only in the zero
+    case — the result of one `?include=customFields` request for a single
+    user. Key names and value *types* only, never values.
 - **Bookings** (`/bookings`) — the SpaceHub Centralized Booking System MVP.
   Deliberately kept separate from the dashboard above, including off the
   home page: it's a different tool for a different purpose (admin-driven

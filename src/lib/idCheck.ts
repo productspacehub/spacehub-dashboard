@@ -25,16 +25,28 @@ export type IdCheckSiteBreakdown = {
   unknown: number;
 };
 
+type Source = "rental" | "include" | "user";
+
 // Structure only — key names, counts, and value *types*. Never values: this
-// is shown on the page to debug a mismatch between the field name staff see
-// in Storeganise admin and the key the API actually returns.
+// is shown on the page to find where the ID actually lives in the API
+// response without opening Storeganise.
 export type IdCheckDiagnostics = {
   matchedKeys: string[];
+  rentals: number;
+  rentalsWithCustomFields: number;
   ownersFromInclude: number;
   includeOwnersWithCustomFields: number;
   usersFetched: number;
   fetchedUsersWithCustomFields: number;
-  customFieldKeys: { source: "include" | "user"; key: string; records: number; nonEmpty: number; shapes: string[] }[];
+  customFieldKeys: { source: Source; key: string; records: number; nonEmpty: number; shapes: string[] }[];
+  // Top-level property names of each object type, to spot custom fields
+  // living under a different property name than `customFields`.
+  topLevelKeys: { source: Source; keys: { key: string; records: number }[] }[];
+  // Nested property paths (any depth up to 4) whose name looks ID-related.
+  keywordPaths: { source: Source; path: string; records: number; shapes: string[] }[];
+  // One-off request for a single user with `include=customFields`, made only
+  // when nothing was found otherwise.
+  includeCustomFieldsProbe?: { result: string; customFieldKeys: string[] };
 };
 
 export type IdCheckReport = {
@@ -58,6 +70,7 @@ type OccupiedRental = {
   unitId: string;
   siteId: string;
   ownerId: string;
+  customFields?: CustomFields;
   owner?: { name?: string; email?: string; phone?: string; customFields?: CustomFields };
 };
 
@@ -93,6 +106,9 @@ function findIdKey(customFields: CustomFields | undefined): string | undefined {
   return Object.keys(customFields).find((k) => normalizeKey(k) === TARGET_KEY);
 }
 
+const KEYWORD = /custom|ktp|passport|ident|document|file|attach|secret|upload/i;
+const MAX_PATH_DEPTH = 4;
+
 const USER_FETCH_CONCURRENCY = 8;
 
 async function mapWithConcurrency<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
@@ -108,6 +124,89 @@ async function mapWithConcurrency<T, R>(items: T[], limit: number, fn: (item: T)
   return results;
 }
 
+class DiagnosticsCollector {
+  matchedKeys = new Set<string>();
+  counts = {
+    rentals: 0,
+    rentalsWithCustomFields: 0,
+    ownersFromInclude: 0,
+    includeOwnersWithCustomFields: 0,
+    usersFetched: 0,
+    fetchedUsersWithCustomFields: 0,
+  };
+  private cf = new Map<string, { source: Source; key: string; records: number; nonEmpty: number; shapes: Set<string> }>();
+  private top = new Map<Source, Map<string, number>>();
+  private paths = new Map<string, { source: Source; path: string; records: number; shapes: Set<string> }>();
+
+  object(source: Source, obj: unknown) {
+    if (!obj || typeof obj !== "object") return;
+    const top = this.top.get(source) ?? new Map<string, number>();
+    this.top.set(source, top);
+    for (const key of Object.keys(obj)) top.set(key, (top.get(key) ?? 0) + 1);
+    this.walk(source, obj, "", 0);
+  }
+
+  customFields(source: Source, customFields: CustomFields) {
+    for (const [key, value] of Object.entries(customFields)) {
+      const id = `${source}:${key}`;
+      const s = this.cf.get(id) ?? { source, key, records: 0, nonEmpty: 0, shapes: new Set<string>() };
+      this.cf.set(id, s);
+      s.records += 1;
+      if (hasValue(value)) s.nonEmpty += 1;
+      s.shapes.add(shapeOf(value));
+    }
+  }
+
+  private walk(source: Source, value: unknown, path: string, depth: number) {
+    if (depth >= MAX_PATH_DEPTH || !value || typeof value !== "object") return;
+    const target = Array.isArray(value) ? value[0] : value;
+    if (!target || typeof target !== "object") return;
+    const prefix = Array.isArray(value) ? `${path}[]` : path;
+    for (const [key, child] of Object.entries(target)) {
+      const childPath = prefix ? `${prefix}.${key}` : key;
+      if (KEYWORD.test(key)) {
+        const id = `${source}:${childPath}`;
+        const s = this.paths.get(id) ?? { source, path: childPath, records: 0, shapes: new Set<string>() };
+        this.paths.set(id, s);
+        s.records += 1;
+        s.shapes.add(shapeOf(child));
+      }
+      this.walk(source, child, childPath, depth + 1);
+    }
+  }
+
+  result(): Omit<IdCheckDiagnostics, "includeCustomFieldsProbe"> {
+    const order: Record<Source, number> = { rental: 0, include: 1, user: 2 };
+    return {
+      matchedKeys: Array.from(this.matchedKeys),
+      ...this.counts,
+      customFieldKeys: Array.from(this.cf.values())
+        .map((s) => ({ ...s, shapes: Array.from(s.shapes) }))
+        .sort((a, b) => order[a.source] - order[b.source] || b.records - a.records),
+      topLevelKeys: Array.from(this.top.entries())
+        .sort(([a], [b]) => order[a] - order[b])
+        .map(([source, keys]) => ({
+          source,
+          keys: Array.from(keys.entries())
+            .map(([key, records]) => ({ key, records }))
+            .sort((a, b) => a.key.localeCompare(b.key)),
+        })),
+      keywordPaths: Array.from(this.paths.values())
+        .map((s) => ({ ...s, shapes: Array.from(s.shapes) }))
+        .sort((a, b) => order[a.source] - order[b.source] || a.path.localeCompare(b.path))
+        .slice(0, 60),
+    };
+  }
+}
+
+// Checks one customFields object for the ID key; records which key matched.
+function checkCustomFields(diag: DiagnosticsCollector, customFields: CustomFields | undefined): "present" | "empty" | "absent" {
+  const key = findIdKey(customFields);
+  if (!key) return "absent";
+  diag.matchedKeys.add(key);
+  return hasValue(customFields![key]) ? "present" : "empty";
+}
+
 export async function getIdCheckReport(): Promise<IdCheckReport> {
   const [sites, units, rentals] = await Promise.all([
     fetchSites(),
@@ -117,66 +216,61 @@ export async function getIdCheckReport(): Promise<IdCheckReport> {
 
   const siteNameById = new Map(sites.map((s) => [s.id, pickTitle(s.title, s.code ?? s.id)]));
   const unitNameById = new Map(units.map((u) => [u.id, u.name ?? u.id]));
+  const diag = new DiagnosticsCollector();
 
   // One tenant can rent several units (possibly across sites) — the report is
   // per tenant, not per unit.
   const byOwner = new Map<string, { rentals: OccupiedRental[]; owner: OccupiedRental["owner"] }>();
   for (const rental of rentals) {
+    diag.counts.rentals += 1;
+    const { owner, ...rentalOnly } = rental;
+    diag.object("rental", rentalOnly);
+    if (rental.customFields) {
+      diag.counts.rentalsWithCustomFields += 1;
+      diag.customFields("rental", rental.customFields);
+    }
     const entry = byOwner.get(rental.ownerId);
     if (entry) entry.rentals.push(rental);
-    else byOwner.set(rental.ownerId, { rentals: [rental], owner: rental.owner });
+    else byOwner.set(rental.ownerId, { rentals: [rental], owner });
   }
-
-  const keyStats = new Map<string, { source: "include" | "user"; key: string; records: number; nonEmpty: number; shapes: Set<string> }>();
-  const matchedKeys = new Set<string>();
-  const diag = { ownersFromInclude: 0, includeOwnersWithCustomFields: 0, usersFetched: 0, fetchedUsersWithCustomFields: 0 };
-
-  const record = (source: "include" | "user", customFields: CustomFields) => {
-    for (const [key, value] of Object.entries(customFields)) {
-      const id = `${source}:${key}`;
-      let s = keyStats.get(id);
-      if (!s) {
-        s = { source, key, records: 0, nonEmpty: 0, shapes: new Set() };
-        keyStats.set(id, s);
-      }
-      s.records += 1;
-      if (hasValue(value)) s.nonEmpty += 1;
-      s.shapes.add(shapeOf(value));
-    }
-  };
 
   const owners = Array.from(byOwner.entries());
   const tenants = await mapWithConcurrency(owners, USER_FETCH_CONCURRENCY, async ([ownerId, { rentals, owner }]) => {
-    let status: IdStatus;
     let name = owner?.name;
     let email = owner?.email;
     let phone = owner?.phone;
 
-    if (owner) diag.ownersFromInclude += 1;
+    if (owner) {
+      diag.counts.ownersFromInclude += 1;
+      diag.object("include", owner);
+    }
     if (owner?.customFields) {
-      diag.includeOwnersWithCustomFields += 1;
-      record("include", owner.customFields);
+      diag.counts.includeOwnersWithCustomFields += 1;
+      diag.customFields("include", owner.customFields);
     }
 
-    // Only trust `include=owner` when it actually carries the ID key — an
-    // included owner can come back with a partial customFields object, which
-    // would otherwise make every tenant read as "missing". Anything short of
-    // that falls back to the full user record.
-    const includeKey = findIdKey(owner?.customFields);
-    if (includeKey) {
-      matchedKeys.add(includeKey);
-      status = hasValue(owner!.customFields![includeKey]) ? "present" : "missing";
+    // The field could be defined on the rental (collected at booking) or on
+    // the user profile — Storeganise supports custom fields on both. A tenant
+    // has an ID if any of their records carries a non-empty value.
+    const rentalHit = rentals.some((r) => checkCustomFields(diag, r.customFields) === "present");
+    const includeHit = checkCustomFields(diag, owner?.customFields) === "present";
+
+    let status: IdStatus;
+    if (rentalHit || includeHit) {
+      status = "present";
     } else {
+      // Nothing in hand says "present" — read the full user record before
+      // concluding "missing", since an included owner can carry a partial
+      // customFields (or none).
       try {
         const user = await fetchUserById(ownerId);
-        diag.usersFetched += 1;
+        diag.counts.usersFetched += 1;
+        diag.object("user", user);
         if (user.customFields) {
-          diag.fetchedUsersWithCustomFields += 1;
-          record("user", user.customFields);
+          diag.counts.fetchedUsersWithCustomFields += 1;
+          diag.customFields("user", user.customFields);
         }
-        const userKey = findIdKey(user.customFields);
-        if (userKey) matchedKeys.add(userKey);
-        status = userKey && hasValue(user.customFields![userKey]) ? "present" : "missing";
+        status = checkCustomFields(diag, user.customFields) === "present" ? "present" : "missing";
         name ??= user.name;
         email ??= user.email;
         phone ??= user.phone;
@@ -215,23 +309,32 @@ export async function getIdCheckReport(): Promise<IdCheckReport> {
   }
 
   const all = tenants.map((t) => t.tenant);
+  const withId = all.filter((t) => t.status === "present").length;
   const byName = (a: IdCheckTenant, b: IdCheckTenant) => a.name.localeCompare(b.name);
+
+  const diagnostics: IdCheckDiagnostics = diag.result();
+  if (withId === 0 && diagnostics.matchedKeys.length === 0 && owners.length > 0) {
+    try {
+      const probe = await fetchUserById(owners[0][0], { include: "customFields" });
+      diagnostics.includeCustomFieldsProbe = {
+        result: probe.customFields ? "customFields ada di response" : "OK, tapi customFields tetap tidak ada",
+        customFieldKeys: Object.keys(probe.customFields ?? {}),
+      };
+    } catch (err) {
+      const status = err instanceof Error ? err.message.match(/error (\d{3})/)?.[1] : undefined;
+      diagnostics.includeCustomFieldsProbe = { result: `ditolak API (HTTP ${status ?? "?"})`, customFieldKeys: [] };
+    }
+  }
 
   return {
     generatedAt: new Date().toISOString(),
     totalTenants: all.length,
-    withId: all.filter((t) => t.status === "present").length,
+    withId,
     withoutId: all.filter((t) => t.status === "missing").length,
     unknown: all.filter((t) => t.status === "unknown").length,
     bySite: Array.from(bySiteMap.values()).sort((a, b) => a.siteName.localeCompare(b.siteName)),
     tenantsWithoutId: all.filter((t) => t.status === "missing").sort(byName),
     tenantsUnknown: all.filter((t) => t.status === "unknown").sort(byName),
-    diagnostics: {
-      matchedKeys: Array.from(matchedKeys),
-      ...diag,
-      customFieldKeys: Array.from(keyStats.values())
-        .map((s) => ({ ...s, shapes: Array.from(s.shapes) }))
-        .sort((a, b) => a.source.localeCompare(b.source) || b.records - a.records),
-    },
+    diagnostics,
   };
 }

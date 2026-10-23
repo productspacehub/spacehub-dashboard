@@ -50,6 +50,41 @@ function TenantTable({ tenants }: { tenants: IdCheckTenant[] }) {
   );
 }
 
+const SOURCE_LABELS: Record<IdCheckDiagnostics["customFieldKeys"][number]["source"], string> = {
+  rental: "rental",
+  include: "owner (include=owner)",
+  user: "profil user",
+};
+
+function DiagTable({ headers, rows }: { headers: string[]; rows: (string | number)[][] }) {
+  return (
+    <div className="mt-2 overflow-x-auto rounded-xl border" style={{ borderColor: "var(--gridline)" }}>
+      <table className="w-full text-left">
+        <thead>
+          <tr style={{ borderBottom: "1px solid var(--gridline)" }}>
+            {headers.map((h) => (
+              <th key={h} className="px-3 py-2 font-medium whitespace-nowrap" style={{ color: "var(--text-secondary)" }}>
+                {h}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row, i) => (
+            <tr key={i} style={{ borderBottom: "1px solid var(--gridline)" }}>
+              {row.map((cell, j) => (
+                <td key={j} className={`px-3 py-1.5 ${j < 2 ? "whitespace-nowrap" : ""}`}>
+                  {typeof cell === "string" && j > 0 ? <code>{cell}</code> : cell}
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 function DiagnosticsPanel({
   diagnostics: d,
   defaultOpen = false,
@@ -73,42 +108,55 @@ function DiagnosticsPanel({
         <b style={{ color: "var(--text-secondary)" }}>{d.matchedKeys.length > 0 ? d.matchedKeys.join(", ") : "tidak ditemukan"}</b>.
       </p>
       <p className="mt-2 leading-relaxed">
-        Dari <code>include=owner</code>: {d.includeOwnersWithCustomFields} dari {d.ownersFromInclude} owner membawa{" "}
-        <code>customFields</code>. Profil user lengkap diambil untuk {d.usersFetched} tenant, {d.fetchedUsersWithCustomFields}{" "}
-        di antaranya punya <code>customFields</code>.
+        <code>customFields</code> ditemukan di: {d.rentalsWithCustomFields} dari {d.rentals} rental ·{" "}
+        {d.includeOwnersWithCustomFields} dari {d.ownersFromInclude} owner (<code>include=owner</code>) ·{" "}
+        {d.fetchedUsersWithCustomFields} dari {d.usersFetched} profil user lengkap.
+      </p>
+      {d.includeCustomFieldsProbe && (
+        <p className="mt-2 leading-relaxed">
+          Uji 1 user dengan <code>?include=customFields</code>: {d.includeCustomFieldsProbe.result}
+          {d.includeCustomFieldsProbe.customFieldKeys.length > 0 && (
+            <>
+              {" "}— key: <code>{d.includeCustomFieldsProbe.customFieldKeys.join(", ")}</code>
+            </>
+          )}
+          .
+        </p>
+      )}
+
+      <p className="mt-4 font-semibold" style={{ color: "var(--text-secondary)" }}>
+        Isi customFields
       </p>
       {d.customFieldKeys.length === 0 ? (
-        <p className="mt-2">Tidak ada satu pun key customFields yang terbaca dari API.</p>
+        <p className="mt-1">Tidak ada satu pun key customFields yang terbaca dari API.</p>
       ) : (
-        <div className="mt-3 overflow-x-auto rounded-xl border" style={{ borderColor: "var(--gridline)" }}>
-          <table className="w-full text-left">
-            <thead>
-              <tr style={{ borderBottom: "1px solid var(--gridline)" }}>
-                {["Sumber", "Key", "Muncul di", "Terisi", "Tipe isi"].map((h) => (
-                  <th key={h} className="px-3 py-2 font-medium whitespace-nowrap" style={{ color: "var(--text-secondary)" }}>
-                    {h}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {d.customFieldKeys.map((k) => (
-                <tr key={`${k.source}:${k.key}`} style={{ borderBottom: "1px solid var(--gridline)" }}>
-                  <td className="px-3 py-1.5 whitespace-nowrap">{k.source === "include" ? "include=owner" : "profil user"}</td>
-                  <td className="px-3 py-1.5 whitespace-nowrap">
-                    <code>{k.key}</code>
-                  </td>
-                  <td className="px-3 py-1.5">{k.records}</td>
-                  <td className="px-3 py-1.5">{k.nonEmpty}</td>
-                  <td className="px-3 py-1.5">
-                    <code>{k.shapes.join(" | ")}</code>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <DiagTable
+          headers={["Sumber", "Key", "Muncul di", "Terisi", "Tipe isi"]}
+          rows={d.customFieldKeys.map((k) => [SOURCE_LABELS[k.source], k.key, k.records, k.nonEmpty, k.shapes.join(" | ")])}
+        />
       )}
+
+      <p className="mt-4 font-semibold" style={{ color: "var(--text-secondary)" }}>
+        Field yang namanya mirip ID/dokumen/file (di level mana pun)
+      </p>
+      {d.keywordPaths.length === 0 ? (
+        <p className="mt-1">Tidak ada.</p>
+      ) : (
+        <DiagTable
+          headers={["Sumber", "Path", "Muncul di", "Tipe isi"]}
+          rows={d.keywordPaths.map((p) => [SOURCE_LABELS[p.source], p.path, p.records, p.shapes.join(" | ")])}
+        />
+      )}
+
+      <p className="mt-4 font-semibold" style={{ color: "var(--text-secondary)" }}>
+        Semua field level atas yang dikirim API
+      </p>
+      {d.topLevelKeys.map((t) => (
+        <p key={t.source} className="mt-1 leading-relaxed">
+          <span style={{ color: "var(--text-secondary)" }}>{SOURCE_LABELS[t.source]}:</span>{" "}
+          <code>{t.keys.map((k) => k.key).join(", ")}</code>
+        </p>
+      ))}
     </details>
   );
 }
