@@ -274,29 +274,20 @@ Open [http://localhost:3000](http://localhost:3000) — you'll be redirected to
     field's value never leaves the server — the API returns a
     present/missing/unknown status per tenant, nothing more. Tenants who do
     have an ID are counted but never listed.
-  - Looks for the key on the unit rental's own `customFields` and on the
-    included owner's (Storeganise supports custom fields on both rentals and
-    users), and only when neither has a non-empty value falls back to
-    `GET /v1/admin/users/:id` per tenant (8 at a time).
-  - **Unresolved as of this writing:** in production, none of 285 tenants
-    came back with `customFields` on either the included owner or the full
-    user record, so where the API exposes `passport-ktp` (rental custom
-    fields, a different property name, a "secret" field hidden from the API,
-    or an extra request parameter) is still being diagnosed via the panel
-    below.
-  - The key is matched loosely (case and separators ignored), since the
-    admin UI label and the API key can differ (`passport-ktp` vs
-    `passport_ktp`).
+  - **Storeganise only returns a user's custom fields when asked with
+    `include=customFields`** — neither the plain `GET /v1/admin/users/:id`
+    nor `unit-rentals?include=owner` carries them (found in production: 0 of
+    285 tenants without it; earlier versions of this page read every
+    tenant as missing because of this). So the report fetches each tenant
+    with `GET /v1/admin/users/:id?include=customFields`, 8 at a time — one
+    request per tenant on every page load. Unset fields are simply absent
+    from `customFields`.
   - A failed user lookup is reported as "Tidak bisa dicek", never as
     "belum ada". If zero tenants are detected with an ID at all, the page
     shows a warning instead of presenting it as a real 0%.
-  - "Detail teknis" (moved to the top of the page and auto-opened in that
-    zero case, collapsed at the bottom otherwise) lists, per source (rental /
-    included owner / full user): which customFields keys came back and how
-    many are filled, every top-level property name, any nested property
-    path whose name looks ID/document/file-related, and — only in the zero
-    case — the result of one `?include=customFields` request for a single
-    user. Key names and value *types* only, never values.
+  - "Detail teknis" (at the top and open in that zero case, collapsed at the
+    bottom otherwise) lists which customFields keys came back, how many are
+    filled, and the value *types* — key names and types only, never values.
 - **Bookings** (`/bookings`) — the SpaceHub Centralized Booking System MVP.
   Deliberately kept separate from the dashboard above, including off the
   home page: it's a different tool for a different purpose (admin-driven
