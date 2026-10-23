@@ -261,6 +261,27 @@ Open [http://localhost:3000](http://localhost:3000) — you'll be redirected to
     (module_type vs. New Rent/Extension/Late Fee/etc.), and keeping them
     apart avoids any regression risk to Cash-in's existing, already-
     validated logic.
+- `src/lib/idCheck.ts` / `/api/id-check` / `/id-check` (linked from
+  `/occupancy`) — Kelengkapan KTP/paspor: how many active tenants (owners of
+  `occupied` unit rentals, counted once per person) have uploaded an ID, per
+  site, plus the list of tenants who haven't, for follow-up.
+  - The ID lives in the SpaceHub-specific custom field
+    `customFields["passport-ktp"]` on the Storeganise user (not a Storeganise
+    default field). Its value shape (file object vs. array vs. URL) isn't
+    documented anywhere we could read, so "has an ID" means "the field has
+    any non-empty value".
+  - Presence check only: the file itself is never fetched or opened, and the
+    field's value never leaves the server — the API returns a
+    present/missing/unknown status per tenant, nothing more. Tenants who do
+    have an ID are counted but never listed.
+  - Reads `customFields` from `unit-rentals?include=owner` when the include
+    carries it; otherwise falls back to `GET /v1/admin/users/:id` per tenant
+    (8 at a time). Whether the include carries custom fields hasn't been
+    confirmed against the real API yet.
+  - A failed user lookup is reported as "Tidak bisa dicek", never as
+    "belum ada". If zero tenants are detected with an ID at all, the page
+    shows a warning instead of presenting it as a real 0% — that's far more
+    likely to mean the field isn't coming back from the API.
 - **Bookings** (`/bookings`) — the SpaceHub Centralized Booking System MVP.
   Deliberately kept separate from the dashboard above, including off the
   home page: it's a different tool for a different purpose (admin-driven

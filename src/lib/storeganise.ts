@@ -228,6 +228,7 @@ export type StoreganiseUser = {
   name?: string;
   email?: string;
   phone?: string;
+  customFields?: Record<string, unknown>;
 };
 
 export async function fetchUserById(userId: string): Promise<StoreganiseUser> {
