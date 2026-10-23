@@ -17,7 +17,7 @@ function TenantTable({ tenants }: { tenants: IdCheckTenant[] }) {
       <table className="w-full text-left text-sm">
         <thead>
           <tr style={{ borderBottom: "1px solid var(--gridline)" }}>
-            {["Nama", "Site", "Unit", "Telepon", "Email"].map((h) => (
+            {["Nama", "Site", "Unit", "Email"].map((h) => (
               <th key={h} className="px-4 py-3 font-medium whitespace-nowrap" style={{ color: "var(--text-secondary)" }}>
                 {h}
               </th>
@@ -35,9 +35,6 @@ function TenantTable({ tenants }: { tenants: IdCheckTenant[] }) {
               </td>
               <td className="px-4 py-2 whitespace-nowrap" style={{ color: "var(--text-secondary)" }}>
                 {t.unitNames.join(", ")}
-              </td>
-              <td className="px-4 py-2 whitespace-nowrap" style={{ color: "var(--text-secondary)" }}>
-                {t.phone ?? "–"}
               </td>
               <td className="px-4 py-2" style={{ color: "var(--text-secondary)" }}>
                 {t.email ?? "–"}

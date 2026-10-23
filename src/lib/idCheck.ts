@@ -10,7 +10,6 @@ export type IdCheckTenant = {
   ownerId: string;
   name: string;
   email?: string;
-  phone?: string;
   siteNames: string[];
   unitNames: string[];
   status: IdStatus;
@@ -72,7 +71,7 @@ type OccupiedRental = {
   unitId: string;
   siteId: string;
   ownerId: string;
-  owner?: { name?: string; email?: string; phone?: string };
+  owner?: { name?: string; email?: string };
 };
 
 // The File field's value shape isn't documented anywhere we could read — so
@@ -152,7 +151,6 @@ export async function getIdCheckReport(): Promise<IdCheckReport> {
     let status: IdStatus;
     let name = owner?.name;
     let email = owner?.email;
-    let phone = owner?.phone;
 
     // Storeganise only returns a user's custom fields when explicitly asked
     // with include=customFields — neither the plain user record nor
@@ -178,7 +176,6 @@ export async function getIdCheckReport(): Promise<IdCheckReport> {
       status = hasValue(user.customFields?.[ID_CUSTOM_FIELD]) ? "present" : "missing";
       name ??= user.name;
       email ??= user.email;
-      phone ??= user.phone;
     } catch {
       // A failed lookup is "unknown", never "missing" — we didn't see the
       // record, so we can't claim the ID isn't there.
@@ -189,7 +186,6 @@ export async function getIdCheckReport(): Promise<IdCheckReport> {
       ownerId,
       name: name ?? ownerId,
       email,
-      phone,
       siteNames: Array.from(new Set(rentals.map((r) => siteNameById.get(r.siteId) ?? r.siteId))),
       unitNames: rentals.map((r) => unitNameById.get(r.unitId) ?? r.unitId),
       status,
