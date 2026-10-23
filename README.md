@@ -278,10 +278,22 @@ Open [http://localhost:3000](http://localhost:3000) — you'll be redirected to
     `include=customFields`** — neither the plain `GET /v1/admin/users/:id`
     nor `unit-rentals?include=owner` carries them (found in production: 0 of
     285 tenants without it; earlier versions of this page read every
-    tenant as missing because of this). So the report fetches each tenant
-    with `GET /v1/admin/users/:id?include=customFields`, 8 at a time — one
-    request per tenant on every page load. Unset fields are simply absent
-    from `customFields`.
+    tenant as missing because of this). Unset fields are simply absent from
+    `customFields`.
+  - Reads everyone at once from the paged user list,
+    `GET /v1/admin/users?include=customFields`, when that list actually
+    carries `customFields`; any active tenant missing from it — or everyone,
+    if the list doesn't carry custom fields or fails — falls back to
+    `GET /v1/admin/users/:id?include=customFields`, 8 at a time. Whether the
+    list endpoint honors `include=customFields` was unconfirmed when this
+    was written; "Detail teknis" shows which source was used.
+  - **KTP/paspor dari customer tanpa unit aktif**: Storeganise keeps the
+    upload after move-out, so users with `passport-ktp` but no occupied unit
+    are counted (never listed) and split by their rentals: has a `reserved`
+    rental → reservation (takes priority — they're coming back), else has an
+    `ended` rental → moved out, else never rented / cancelled. Only
+    available from the user list — checking every user in the account one
+    by one on each page load would be too heavy.
   - A failed user lookup is reported as "Tidak bisa dicek", never as
     "belum ada". If zero tenants are detected with an ID at all, the page
     shows a warning instead of presenting it as a real 0%.

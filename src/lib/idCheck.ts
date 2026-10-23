@@ -1,4 +1,4 @@
-import { fetchSites, fetchUnits, fetchUserById, paginate, pickTitle } from "./storeganise";
+import { fetchSites, fetchUnits, fetchUserById, paginate, pickTitle, type StoreganiseUser } from "./storeganise";
 
 // SpaceHub-specific user custom field (type File, not a Storeganise default)
 // holding the tenant's uploaded KTP/passport.
@@ -25,8 +25,26 @@ export type IdCheckSiteBreakdown = {
   unknown: number;
 };
 
+// Users with an ID on file but no occupied unit — mostly customers who have
+// moved out, since Storeganise keeps the upload after move-out. Counts only.
+export type InactiveIdSummary = {
+  // false when the user list didn't carry custom fields, so these can't be
+  // counted without one request per user in the whole Storeganise account.
+  available: boolean;
+  usersScanned: number;
+  total: number;
+  // Category counts are null when the rental lists they're derived from
+  // couldn't be fetched.
+  movedOut: number | null; // has an ended rental
+  reserved: number | null; // has a reservation, not moved in yet
+  neverRented: number | null; // no occupied, ended, or reserved rental
+};
+
 // Structure only — key names, counts, and value *types*. Never values.
 export type IdCheckDiagnostics = {
+  tenantSource: "user-list" | "per-user";
+  usersInList: number | null;
+  userListError?: string;
   usersFetched: number;
   usersWithCustomFields: number;
   customFieldKeys: { key: string; records: number; nonEmpty: number; shapes: string[] }[];
@@ -43,8 +61,11 @@ export type IdCheckReport = {
   // counted but never listed.
   tenantsWithoutId: IdCheckTenant[];
   tenantsUnknown: IdCheckTenant[];
+  inactive: InactiveIdSummary;
   diagnostics: IdCheckDiagnostics;
 };
+
+type RentalOwnerOnly = { ownerId: string };
 
 type OccupiedRental = {
   id: string;
@@ -90,11 +111,27 @@ async function mapWithConcurrency<T, R>(items: T[], limit: number, fn: (item: T)
 }
 
 export async function getIdCheckReport(): Promise<IdCheckReport> {
-  const [sites, units, rentals] = await Promise.all([
+  let userListError: string | undefined;
+  const [sites, units, rentals, userList, endedRentals, reservedRentals] = await Promise.all([
     fetchSites(),
     fetchUnits(),
     paginate<OccupiedRental>("/v1/admin/unit-rentals?state=occupied&include=owner"),
+    // Everyone in the account (former customers included) in a few paged
+    // requests. Fails soft: the active-tenant report doesn't depend on it.
+    paginate<StoreganiseUser>("/v1/admin/users?include=customFields").catch((err: unknown) => {
+      userListError = err instanceof Error ? err.message.slice(0, 160) : "unknown error";
+      return null;
+    }),
+    paginate<RentalOwnerOnly>("/v1/admin/unit-rentals?state=ended").catch(() => null),
+    paginate<RentalOwnerOnly>("/v1/admin/unit-rentals?state=reserved").catch(() => null),
   ]);
+
+  // Only trust the list for custom fields if it actually carries them —
+  // whether the list endpoint honors include=customFields like the single-user
+  // endpoint does is unconfirmed. Unset fields are absent, so a listed user
+  // with no customFields at all just has nothing filled in.
+  const listHasCustomFields = userList !== null && userList.some((u) => u.customFields);
+  const listUserById = new Map((listHasCustomFields ? userList : []).map((u) => [u.id, u]));
 
   const siteNameById = new Map(sites.map((s) => [s.id, pickTitle(s.title, s.code ?? s.id)]));
   const unitNameById = new Map(units.map((u) => [u.id, u.name ?? u.id]));
@@ -120,10 +157,14 @@ export async function getIdCheckReport(): Promise<IdCheckReport> {
     // Storeganise only returns a user's custom fields when explicitly asked
     // with include=customFields — neither the plain user record nor
     // unit-rentals?include=owner carries them (confirmed in production: 0 of
-    // 285 tenants without it).
+    // 285 tenants without it). Prefer the already-fetched user list; fall back
+    // to a per-user request only for tenants it doesn't cover.
     try {
-      const user = await fetchUserById(ownerId, { include: "customFields" });
-      diag.usersFetched += 1;
+      let user = listUserById.get(ownerId);
+      if (!user) {
+        user = await fetchUserById(ownerId, { include: "customFields" });
+        diag.usersFetched += 1;
+      }
       if (user.customFields) {
         diag.usersWithCustomFields += 1;
         for (const [key, value] of Object.entries(user.customFields)) {
@@ -174,6 +215,32 @@ export async function getIdCheckReport(): Promise<IdCheckReport> {
   const all = tenants.map((t) => t.tenant);
   const byName = (a: IdCheckTenant, b: IdCheckTenant) => a.name.localeCompare(b.name);
 
+  const inactive: InactiveIdSummary = {
+    available: listHasCustomFields,
+    usersScanned: listHasCustomFields ? userList!.length : 0,
+    total: 0,
+    movedOut: endedRentals ? 0 : null,
+    reserved: reservedRentals ? 0 : null,
+    neverRented: endedRentals && reservedRentals ? 0 : null,
+  };
+  if (listHasCustomFields) {
+    const endedOwners = new Set(endedRentals?.map((r) => r.ownerId));
+    const reservedOwners = new Set(reservedRentals?.map((r) => r.ownerId));
+    for (const user of userList!) {
+      if (byOwner.has(user.id) || !hasValue(user.customFields?.[ID_CUSTOM_FIELD])) continue;
+      inactive.total += 1;
+      // An upcoming reservation outranks an old move-out: that customer is
+      // coming back, not gone.
+      if (reservedOwners.has(user.id)) {
+        if (inactive.reserved !== null) inactive.reserved += 1;
+      } else if (endedOwners.has(user.id)) {
+        if (inactive.movedOut !== null) inactive.movedOut += 1;
+      } else if (inactive.neverRented !== null) {
+        inactive.neverRented += 1;
+      }
+    }
+  }
+
   return {
     generatedAt: new Date().toISOString(),
     totalTenants: all.length,
@@ -183,7 +250,11 @@ export async function getIdCheckReport(): Promise<IdCheckReport> {
     bySite: Array.from(bySiteMap.values()).sort((a, b) => a.siteName.localeCompare(b.siteName)),
     tenantsWithoutId: all.filter((t) => t.status === "missing").sort(byName),
     tenantsUnknown: all.filter((t) => t.status === "unknown").sort(byName),
+    inactive,
     diagnostics: {
+      tenantSource: listHasCustomFields ? "user-list" : "per-user",
+      usersInList: userList?.length ?? null,
+      userListError,
       ...diag,
       customFieldKeys: Array.from(keyStats.values())
         .map((s) => ({ ...s, shapes: Array.from(s.shapes) }))

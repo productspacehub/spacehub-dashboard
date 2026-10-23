@@ -69,8 +69,16 @@ function DiagnosticsPanel({
         Detail teknis (untuk debugging)
       </summary>
       <p className="mt-3 leading-relaxed">
-        Hanya nama key dan tipe isinya — tidak ada nilai/isi field yang ditampilkan. Profil user diambil dengan{" "}
-        <code>include=customFields</code> untuk {d.usersFetched} tenant, {d.usersWithCustomFields} di antaranya punya{" "}
+        Hanya nama key dan tipe isinya — tidak ada nilai/isi field yang ditampilkan.
+      </p>
+      <p className="mt-2 leading-relaxed">
+        Daftar user (<code>/v1/admin/users?include=customFields</code>):{" "}
+        {d.usersInList === null
+          ? `gagal diambil${d.userListError ? ` — ${d.userListError}` : ""}`
+          : d.tenantSource === "user-list"
+            ? `${d.usersInList} user, membawa customFields — dipakai sebagai sumber data`
+            : `${d.usersInList} user, tapi tidak membawa customFields — tidak dipakai`}
+        . Profil diambil satu per satu untuk {d.usersFetched} tenant. Total {d.usersWithCustomFields} tenant aktif punya{" "}
         <code>customFields</code>.
       </p>
       {d.customFieldKeys.length === 0 ? (
@@ -310,6 +318,54 @@ export default function IdCheckPage() {
 
             <section className="mb-8 rounded-2xl border p-6" style={{ background: "var(--surface-1)", borderColor: "var(--gridline)" }}>
               <p className="mb-1 text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
+                KTP/paspor dari customer tanpa unit aktif
+              </p>
+              <p className="mb-4 text-xs" style={{ color: "var(--text-muted)" }}>
+                Storeganise tetap menyimpan KTP/paspor setelah customer move-out · hanya jumlah, tanpa daftar nama
+              </p>
+              {data.inactive.available ? (
+                <>
+                  <p className="mb-4 text-3xl font-bold" style={{ color: "var(--text-primary)" }}>
+                    {data.inactive.total}{" "}
+                    <span className="text-sm font-normal" style={{ color: "var(--text-muted)" }}>
+                      customer
+                    </span>
+                  </p>
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+                    {(
+                      [
+                        ["Sudah move-out", data.inactive.movedOut],
+                        ["Reservasi, belum move-in", data.inactive.reserved],
+                        ["Belum pernah sewa / batal", data.inactive.neverRented],
+                      ] as const
+                    ).map(([label, value]) => (
+                      <div key={label}>
+                        <p className="mb-1 text-[11px] font-bold tracking-wide uppercase" style={{ color: "var(--text-muted)" }}>
+                          {label}
+                        </p>
+                        <p className="text-2xl font-bold" style={{ color: "var(--text-primary)" }}>
+                          {value ?? "–"}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                  <p className="mt-4 text-xs" style={{ color: "var(--text-muted)" }}>
+                    Total KTP/paspor tersimpan di Storeganise: {data.withId + data.inactive.total} ({data.withId} tenant aktif +{" "}
+                    {data.inactive.total} tanpa unit aktif, dari {data.inactive.usersScanned} user terdaftar).
+                    {(data.inactive.movedOut === null || data.inactive.reserved === null) &&
+                      " Sebagian kategori tidak bisa dihitung karena daftar rental gagal diambil."}
+                  </p>
+                </>
+              ) : (
+                <p className="text-sm" style={{ color: "var(--text-muted)" }}>
+                  Tidak bisa dihitung: daftar user dari API Storeganise tidak menyertakan custom fields, dan mengecek
+                  seluruh user satu per satu terlalu berat untuk dilakukan setiap halaman dibuka.
+                </p>
+              )}
+            </section>
+
+            <section className="mb-8 rounded-2xl border p-6" style={{ background: "var(--surface-1)", borderColor: "var(--gridline)" }}>
+              <p className="mb-1 text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
                 Tenant yang belum upload KTP/paspor ({data.tenantsWithoutId.length})
               </p>
               <p className="mb-4 text-xs" style={{ color: "var(--text-muted)" }}>
@@ -350,6 +406,11 @@ export default function IdCheckPage() {
                 <br />
                 <b style={{ color: "var(--text-secondary)" }}>Tidak bisa dicek</b>: data user-nya gagal diambil dari
                 Storeganise, jadi tidak dihitung sebagai &quot;belum ada&quot;.
+                <br />
+                <b style={{ color: "var(--text-secondary)" }}>Tanpa unit aktif</b>: user yang punya{" "}
+                <code>passport-ktp</code> tapi tidak punya unit occupied. &quot;Sudah move-out&quot; = punya rental
+                berstatus <code>ended</code>; &quot;Reservasi&quot; = punya rental <code>reserved</code> (didahulukan
+                kalau keduanya ada, karena customer itu akan kembali); sisanya &quot;Belum pernah sewa / batal&quot;.
               </p>
             </section>
 
