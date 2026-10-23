@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { signOut, useSession } from "next-auth/react";
-import type { IdCheckReport, IdCheckTenant } from "@/lib/idCheck";
+import type { IdCheckDiagnostics, IdCheckReport, IdCheckTenant } from "@/lib/idCheck";
 import { Meter } from "@/components/Meter";
 
 function pct(part: number, total: number): number {
@@ -47,6 +47,69 @@ function TenantTable({ tenants }: { tenants: IdCheckTenant[] }) {
         </tbody>
       </table>
     </div>
+  );
+}
+
+function DiagnosticsPanel({
+  diagnostics: d,
+  defaultOpen = false,
+  className,
+}: {
+  diagnostics: IdCheckDiagnostics;
+  defaultOpen?: boolean;
+  className?: string;
+}) {
+  return (
+    <details
+      open={defaultOpen}
+      className={`rounded-2xl border p-6 text-xs ${className ?? ""}`}
+      style={{ background: "var(--surface-1)", borderColor: "var(--gridline)", color: "var(--text-muted)" }}
+    >
+      <summary className="cursor-pointer text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
+        Detail teknis (untuk debugging)
+      </summary>
+      <p className="mt-3 leading-relaxed">
+        Hanya nama key dan tipe isinya — tidak ada nilai/isi field yang ditampilkan. Key yang dipakai sebagai KTP/paspor:{" "}
+        <b style={{ color: "var(--text-secondary)" }}>{d.matchedKeys.length > 0 ? d.matchedKeys.join(", ") : "tidak ditemukan"}</b>.
+      </p>
+      <p className="mt-2 leading-relaxed">
+        Dari <code>include=owner</code>: {d.includeOwnersWithCustomFields} dari {d.ownersFromInclude} owner membawa{" "}
+        <code>customFields</code>. Profil user lengkap diambil untuk {d.usersFetched} tenant, {d.fetchedUsersWithCustomFields}{" "}
+        di antaranya punya <code>customFields</code>.
+      </p>
+      {d.customFieldKeys.length === 0 ? (
+        <p className="mt-2">Tidak ada satu pun key customFields yang terbaca dari API.</p>
+      ) : (
+        <div className="mt-3 overflow-x-auto rounded-xl border" style={{ borderColor: "var(--gridline)" }}>
+          <table className="w-full text-left">
+            <thead>
+              <tr style={{ borderBottom: "1px solid var(--gridline)" }}>
+                {["Sumber", "Key", "Muncul di", "Terisi", "Tipe isi"].map((h) => (
+                  <th key={h} className="px-3 py-2 font-medium whitespace-nowrap" style={{ color: "var(--text-secondary)" }}>
+                    {h}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {d.customFieldKeys.map((k) => (
+                <tr key={`${k.source}:${k.key}`} style={{ borderBottom: "1px solid var(--gridline)" }}>
+                  <td className="px-3 py-1.5 whitespace-nowrap">{k.source === "include" ? "include=owner" : "profil user"}</td>
+                  <td className="px-3 py-1.5 whitespace-nowrap">
+                    <code>{k.key}</code>
+                  </td>
+                  <td className="px-3 py-1.5">{k.records}</td>
+                  <td className="px-3 py-1.5">{k.nonEmpty}</td>
+                  <td className="px-3 py-1.5">
+                    <code>{k.shapes.join(" | ")}</code>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </details>
   );
 }
 
@@ -153,10 +216,11 @@ export default function IdCheckPage() {
               >
                 <b style={{ color: "var(--status-warning)" }}>Cek dulu sebelum menindaklanjuti:</b> tidak ada satu pun
                 tenant aktif yang terdeteksi punya KTP/paspor. Kemungkinan besar field <code>passport-ktp</code> tidak
-                terbaca dari API Storeganise, bukan berarti semua tenant benar-benar belum upload. Lihat
-                &quot;Detail teknis&quot; di bagian bawah halaman untuk key apa saja yang sebenarnya terbaca.
+                terbaca dari API Storeganise, bukan berarti semua tenant benar-benar belum upload. &quot;Detail
+                teknis&quot; tepat di bawah kotak ini menunjukkan field apa saja yang sebenarnya terbaca.
               </div>
             )}
+            {suspiciousZero && <DiagnosticsPanel diagnostics={data.diagnostics} defaultOpen className="mb-8" />}
 
             <section className="mb-8 rounded-2xl border p-6" style={{ background: "var(--surface-1)", borderColor: "var(--gridline)" }}>
               <p className="mb-1 text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
@@ -294,61 +358,7 @@ export default function IdCheckPage() {
               </p>
             </section>
 
-            <details
-              open={suspiciousZero}
-              className="mt-8 rounded-2xl border p-6 text-xs"
-              style={{ background: "var(--surface-1)", borderColor: "var(--gridline)", color: "var(--text-muted)" }}
-            >
-              <summary className="cursor-pointer text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
-                Detail teknis (untuk debugging)
-              </summary>
-              <p className="mt-3 leading-relaxed">
-                Hanya nama key dan tipe isinya — tidak ada nilai/isi field yang ditampilkan. Key yang dipakai sebagai
-                KTP/paspor:{" "}
-                <b style={{ color: "var(--text-secondary)" }}>
-                  {data.diagnostics.matchedKeys.length > 0 ? data.diagnostics.matchedKeys.join(", ") : "tidak ditemukan"}
-                </b>
-                .
-              </p>
-              <p className="mt-2 leading-relaxed">
-                Dari <code>include=owner</code>: {data.diagnostics.includeOwnersWithCustomFields} dari{" "}
-                {data.diagnostics.ownersFromInclude} owner membawa <code>customFields</code>. Profil user lengkap
-                diambil untuk {data.diagnostics.usersFetched} tenant, {data.diagnostics.fetchedUsersWithCustomFields}{" "}
-                di antaranya punya <code>customFields</code>.
-              </p>
-              {data.diagnostics.customFieldKeys.length === 0 ? (
-                <p className="mt-2">Tidak ada satu pun key customFields yang terbaca dari API.</p>
-              ) : (
-                <div className="mt-3 overflow-x-auto rounded-xl border" style={{ borderColor: "var(--gridline)" }}>
-                  <table className="w-full text-left">
-                    <thead>
-                      <tr style={{ borderBottom: "1px solid var(--gridline)" }}>
-                        {["Sumber", "Key", "Muncul di", "Terisi", "Tipe isi"].map((h) => (
-                          <th key={h} className="px-3 py-2 font-medium whitespace-nowrap" style={{ color: "var(--text-secondary)" }}>
-                            {h}
-                          </th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {data.diagnostics.customFieldKeys.map((k) => (
-                        <tr key={`${k.source}:${k.key}`} style={{ borderBottom: "1px solid var(--gridline)" }}>
-                          <td className="px-3 py-1.5 whitespace-nowrap">{k.source === "include" ? "include=owner" : "profil user"}</td>
-                          <td className="px-3 py-1.5 whitespace-nowrap">
-                            <code>{k.key}</code>
-                          </td>
-                          <td className="px-3 py-1.5">{k.records}</td>
-                          <td className="px-3 py-1.5">{k.nonEmpty}</td>
-                          <td className="px-3 py-1.5">
-                            <code>{k.shapes.join(" | ")}</code>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </details>
+            {!suspiciousZero && <DiagnosticsPanel diagnostics={data.diagnostics} className="mt-8" />}
 
             <p className="mt-8 text-xs" style={{ color: "var(--text-muted)" }}>
               Last updated {new Date(data.generatedAt).toLocaleTimeString()}
