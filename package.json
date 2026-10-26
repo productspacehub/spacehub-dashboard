@@ -9,6 +9,7 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "idn-area-data": "^4.0.1",
     "next": "16.3.4",
     "next-auth": "^5.0.0-beta.32",
     "pg": "^8.23.0",

@@ -261,6 +261,50 @@ Open [http://localhost:3000](http://localhost:3000) — you'll be redirected to
     (module_type vs. New Rent/Extension/Late Fee/etc.), and keeping them
     apart avoids any regression risk to Cash-in's existing, already-
     validated logic.
+- `src/lib/regions.ts` / `src/lib/addressMatch.ts` / `src/lib/addressProfile.ts`
+  / `/api/address-profile` / `/address-profile` (linked from `/occupancy`) —
+  **Profil Alamat Tenant**: a first look at what active tenants actually typed
+  into Storeganise's user `address` field (one free-text box — anything from
+  a full street address to just "Jakarta"), before building a demographic
+  report on top of it. Aggregates only: no address or tenant name ever leaves
+  the server.
+  - Addresses come from `unit-rentals?state=occupied&include=owner` (the
+    owner object carries `address`), one per tenant however many units they
+    rent.
+  - Each address is matched against official Kemendagri province /
+    regency / district names from the `idn-area-data` package (data © its
+    contributors under the Open Database License; read from the package at
+    runtime, so `next.config.ts` marks it external and ships its CSVs), plus
+    a few unambiguous short forms (Jaksel, Tangsel, DKI, Jogja, Solo…).
+    Rules worth knowing:
+    - Longest phrase wins ("Jakarta Selatan" over "Jakarta"); words after
+      "Jl."/"Kel." are a street/village name, not a city; when several cities
+      appear, the last one is used (addresses run small → large) — preferring
+      one inside the written province. If skipping street names leaves no
+      city at all ("Jl Kemang Raya Jakarta Selatan"), it retries without the
+      skip, keeping the result only if it doesn't contradict a written
+      province.
+    - A bare name shared by a Kota and a Kabupaten ("Bogor") stays ambiguous
+      unless a kecamatan settles it; a bare name that's also a province name
+      ("Yogyakarta", "Jambi") reads as the province unless "Kota"/"Kab." is
+      written.
+    - A kecamatan only counts if it's inside the city found, unique within
+      the written province, or — with neither — written after "Kec." or
+      multi-word. So a lone "Kemang" isn't read as Kec. Kemang in Kabupaten
+      Bogor. Words from rejected kecamatan matches go back into the
+      unrecognized-words list, since local area names are exactly what that
+      list is for.
+  - Shows: level reached per address (kecamatan / kota-kab / provinsi /
+    luar negeri / tidak dikenali / kosong), very short (1–2 word) inputs,
+    postal-code presence, ambiguous and province-conflicting matches,
+    province / regency counts, kecamatan with at least 3 tenants, and words
+    appearing in at least 5 unrecognized or province-only addresses —
+    candidates for new area aliases, to be confirmed by someone who knows
+    the areas rather than guessed.
+  - Known limitation: popular area names that coincide with an official
+    region elsewhere are misread (a lone "Kuningan" reads as Kabupaten
+    Kuningan, not the Jakarta business district). Tested only against
+    fictional addresses so far.
 - **Bookings** (`/bookings`) — the SpaceHub Centralized Booking System MVP.
   Deliberately kept separate from the dashboard above, including off the
   home page: it's a different tool for a different purpose (admin-driven
