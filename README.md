@@ -303,8 +303,38 @@ Open [http://localhost:3000](http://localhost:3000) — you'll be redirected to
     the areas rather than guessed.
   - Known limitation: popular area names that coincide with an official
     region elsewhere are misread (a lone "Kuningan" reads as Kabupaten
-    Kuningan, not the Jakarta business district). Tested only against
-    fictional addresses so far.
+    Kuningan, not the Jakarta business district).
+  - The profile applies the manual mappings below on top of automatic
+    matching and says how many addresses each accounts for; if they can't be
+    loaded it falls back to automatic only and says so.
+- `src/lib/addressMapping.ts` / `/api/address-mapping/*` / `/address-mapping`
+  (linked from `/address-profile`) — **Pemetaan Alamat**: manual mapping for
+  the addresses automatic matching couldn't place down to an unambiguous
+  city (unrecognized, province-only, foreign, Kota/Kab. ambiguous). In
+  production the most common words in unrecognized addresses were building
+  words (tower, apartemen, apt, taman), i.e. mostly apartment/building names
+  with no city — so this is built around mapping addresses one by one, with
+  optional phrase rules for buildings that repeat.
+  - **Shows full addresses**, so it's restricted to the exact emails in
+    `ADDRESS_MAPPING_ALLOWED_EMAILS` (unset = nobody), on top of normal login;
+    the link on `/address-profile` only shows for them.
+  - **Overrides** (`address_overrides`) are keyed by a SHA-256 of the
+    normalized address text — the dashboard database never stores an
+    address. Identical addresses are one queue item, mapped once. A tenant
+    editing their address stops matching, so it returns to the queue; stale
+    overrides are just counted. Targets: a kecamatan, kota/kabupaten,
+    province, "luar negeri", or "tidak bisa dipetakan" (taken out of the
+    queue, still counted as unrecognized).
+  - **Rules** (`address_rules`) map a phrase (whole words, normalized) to a
+    region and apply to every address containing it, new tenants included.
+    A rule only ever *adds* detail and never contradicts what the address
+    already names — "Contoh Mas, Jakarta Selatan" can go from city to
+    kecamatan, but a rule can't move a Bandung address to Jakarta; a
+    "luar negeri" rule only applies where nothing Indonesian was found.
+    Longest matching phrase wins. Single generic words ("tower", "taman",
+    "apartemen"…) are refused as phrases, and an existing rule is never
+    silently repointed (409) — delete it first.
+  - Precedence: override → rule → automatic match.
 - **Bookings** (`/bookings`) — the SpaceHub Centralized Booking System MVP.
   Deliberately kept separate from the dashboard above, including off the
   home page: it's a different tool for a different purpose (admin-driven

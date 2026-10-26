@@ -114,7 +114,7 @@ function WordList({ title, words, minAddresses }: { title: string; words: WordCo
 
 export default function AddressProfilePage() {
   const { data: session } = useSession();
-  const [data, setData] = useState<AddressProfile | null>(null);
+  const [data, setData] = useState<(AddressProfile & { mappingAllowed?: boolean }) | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [showAllRegencies, setShowAllRegencies] = useState(false);
@@ -129,7 +129,7 @@ export default function AddressProfilePage() {
       const res = await fetch("/api/address-profile", { signal: controller.signal });
       const body = await res.json();
       if (!res.ok) throw new Error(body?.error ?? `Request failed with status ${res.status}`);
-      setData(body as AddressProfile);
+      setData(body as AddressProfile & { mappingAllowed?: boolean });
       setError(null);
     } catch (err) {
       if (err instanceof DOMException && err.name === "AbortError") return;
@@ -180,6 +180,11 @@ export default function AddressProfilePage() {
           <Link href="/occupancy" className="text-sm hover:underline" style={{ color: "var(--series-1)" }}>
             ← Back to occupancy
           </Link>
+          {data?.mappingAllowed && (
+            <Link href="/address-mapping" className="text-sm hover:underline" style={{ color: "var(--series-1)" }}>
+              Petakan alamat manual →
+            </Link>
+          )}
           {loading && data && (
             <span className="inline-flex items-center gap-2 text-xs" style={{ color: "var(--text-muted)" }}>
               <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-current" style={{ borderTopColor: "transparent", color: "var(--series-1)" }} />
@@ -244,6 +249,14 @@ export default function AddressProfilePage() {
                   {data.provinceConflicts} alamat menyebut provinsi yang berbeda dengan kotanya (mis. &quot;Tangerang
                   Selatan, Jakarta&quot;) — kotanya yang dipakai.
                 </li>
+                {!data.mapping.available && (
+                  <li style={{ color: "var(--status-warning)" }}>Pemetaan manual tidak bisa dimuat — angka di atas hasil pencocokan otomatis saja.</li>
+                )}
+                {data.mapping.manual + data.mapping.rule > 0 && (
+                  <li>
+                    Sudah termasuk {data.mapping.manual} alamat yang dipetakan manual dan {data.mapping.rule} lewat aturan.
+                  </li>
+                )}
                 {data.nonTextAddresses > 0 && <li>{data.nonTextAddresses} alamat dari API tidak berbentuk teks biasa dan digabung otomatis.</li>}
               </ul>
             </Section>

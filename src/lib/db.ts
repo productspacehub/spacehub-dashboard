@@ -213,6 +213,26 @@ async function createSchema(): Promise<void> {
       -- KTP-derived data (birth date, sex, region, masked NIK), so it's
       -- dropped rather than left behind. No-op once it's gone.
       DROP TABLE IF EXISTS ktp_ocr_pilot;
+
+      -- Manual address mapping (/address-mapping). Overrides are keyed by a
+      -- SHA-256 of the normalized address text, so no address is stored here;
+      -- a tenant changing their address simply stops matching. Rules map a
+      -- phrase (a building/area name, not personal data) to a region.
+      CREATE TABLE IF NOT EXISTS address_overrides (
+        address_hash  TEXT PRIMARY KEY,
+        target_kind   TEXT NOT NULL CHECK (target_kind IN ('district', 'regency', 'province', 'foreign', 'unmappable')),
+        target_code   TEXT,
+        created_by    TEXT NOT NULL,
+        created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+      CREATE TABLE IF NOT EXISTS address_rules (
+        id            SERIAL PRIMARY KEY,
+        phrase        TEXT NOT NULL UNIQUE,
+        target_kind   TEXT NOT NULL CHECK (target_kind IN ('district', 'regency', 'province', 'foreign')),
+        target_code   TEXT,
+        created_by    TEXT NOT NULL,
+        created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
     `);
     await client.query("COMMIT");
   } catch (err) {

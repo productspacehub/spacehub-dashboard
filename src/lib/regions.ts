@@ -1,4 +1,5 @@
 import { getDistricts, getProvinces, getRegencies } from "idn-area-data";
+import { normalize } from "./normalize";
 
 // Official Kemendagri region codes/names from the idn-area-data package
 // (data under the Open Database License), indexed for matching free-text
@@ -19,15 +20,6 @@ export type RegionIndex = {
   districtKeys: Map<string, string[]>;
   maxPhraseWords: number;
 };
-
-export function normalize(text: string): string {
-  return text
-    .toLowerCase()
-    .normalize("NFKD")
-    .replace(/[̀-ͯ]/g, "")
-    .replace(/[^a-z0-9]+/g, " ")
-    .trim();
-}
 
 const PROVINCE_ALIASES: Record<string, string[]> = {
   "11": ["nad", "nanggroe aceh darussalam"],
@@ -72,6 +64,20 @@ const REGENCY_PREFIX = /^(kabupaten administrasi|kota administrasi|kabupaten|kot
 
 function provinceBare(name: string): string {
   return normalize(name).replace(/^(daerah khusus ibukota|daerah istimewa)\s+/, "");
+}
+
+// Display names: official names are long ("Kota Administrasi Jakarta
+// Selatan", "Daerah Khusus Ibukota Jakarta").
+export const shortRegency = (name: string) =>
+  name.replace(/^Kota Administrasi /, "Kota ").replace(/^Kabupaten Administrasi /, "Kabupaten ");
+export const shortProvince = (name: string) =>
+  name.replace(/^Daerah Khusus Ibukota /, "DKI ").replace(/^Daerah Istimewa /, "DI ");
+
+// One regency, or a Kota/Kabupaten pair sharing a bare name ("Bogor").
+export function regencyLabel(codes: string[], index: RegionIndex): string {
+  if (codes.length === 1) return shortRegency(index.regencies.get(codes[0])!.name);
+  const bare = index.regencies.get(codes[0])!.name.replace(/^(Kota|Kabupaten)\s+/, "");
+  return `${bare} (Kota/Kab.)`;
 }
 
 let indexPromise: Promise<RegionIndex> | undefined;

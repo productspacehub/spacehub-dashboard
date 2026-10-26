@@ -1,6 +1,7 @@
-import { matchAddress, type AddressLevel } from "./addressMatch";
-import { loadRegionIndex, type RegionIndex } from "./regions";
-import { paginate } from "./storeganise";
+import type { AddressLevel } from "./addressMatch";
+import { loadMappings, resolveAddress } from "./addressMapping";
+import { loadRegionIndex, regencyLabel, shortProvince } from "./regions";
+import { fetchTenantAddresses } from "./tenantAddresses";
 
 // Words/areas below these counts are left out so no individual tenant can be
 // picked out from the profile.
@@ -27,9 +28,10 @@ export type AddressProfile = {
   districts: { name: string; regencyLabel: string; count: number }[];
   districtsHidden: { areas: number; tenants: number };
   words: { unrecognized: WordCount[]; provinceOnly: WordCount[] };
+  // Manual mappings applied on top of automatic matching; available=false
+  // when they couldn't be loaded (the profile then shows automatic only).
+  mapping: { available: boolean; manual: number; rule: number };
 };
-
-type Rental = { ownerId: string; owner?: { address?: unknown } };
 
 // Structural words that say nothing about where someone lives.
 const STOPWORDS = new Set([
@@ -37,24 +39,6 @@ const STOPWORDS = new Set([
   "kel", "kelurahan", "kec", "kecamatan", "desa", "dusun", "kota", "kab", "kabupaten", "prov", "provinsi",
   "indonesia", "dan", "lantai", "unit", "the", "and", "raya",
 ]);
-
-function addressText(value: unknown): { text: string; nonText: boolean } {
-  if (typeof value === "string") return { text: value, nonText: false };
-  if (value && typeof value === "object") {
-    const parts = Object.values(value as Record<string, unknown>).filter((v): v is string => typeof v === "string");
-    return { text: parts.join(", "), nonText: true };
-  }
-  return { text: "", nonText: false };
-}
-
-const shortRegency = (name: string) => name.replace(/^Kota Administrasi /, "Kota ").replace(/^Kabupaten Administrasi /, "Kabupaten ");
-const shortProvince = (name: string) => name.replace(/^Daerah Khusus Ibukota /, "DKI ").replace(/^Daerah Istimewa /, "DI ");
-
-function regencyLabel(codes: string[], index: RegionIndex): string {
-  if (codes.length === 1) return shortRegency(index.regencies.get(codes[0])!.name);
-  const bare = index.regencies.get(codes[0])!.name.replace(/^(Kota|Kabupaten)\s+/, "");
-  return `${bare} (Kota/Kab.)`;
-}
 
 function emptyLevels(): Record<AddressLevel, number> {
   return { district: 0, regency: 0, province: 0, foreign: 0, unrecognized: 0, empty: 0 };
@@ -69,31 +53,29 @@ function topWords(counts: Map<string, number>): WordCount[] {
 }
 
 export async function getAddressProfile(): Promise<AddressProfile> {
-  const [index, rentals] = await Promise.all([
+  const [index, { addresses, nonText }, mappings] = await Promise.all([
     loadRegionIndex(),
-    paginate<Rental>("/v1/admin/unit-rentals?state=occupied&include=owner"),
+    fetchTenantAddresses(),
+    loadMappings().catch(() => null),
   ]);
-
-  // One address per tenant, however many units they rent.
-  const addressByOwner = new Map<string, unknown>();
-  for (const r of rentals) if (!addressByOwner.has(r.ownerId)) addressByOwner.set(r.ownerId, r.owner?.address);
 
   const byLevel = emptyLevels();
   const shortByLevel = emptyLevels();
   let ambiguousRegency = 0;
   let provinceConflicts = 0;
   let withPostalCode = 0;
-  let nonTextAddresses = 0;
+  let mappedManual = 0;
+  let mappedByRule = 0;
   const provinces = new Map<string, number>();
   const regencies = new Map<string, { provinceName: string; count: number; ambiguous: boolean }>();
   const districts = new Map<string, { name: string; regencyLabel: string; count: number }>();
   const unrecognizedWords = new Map<string, number>();
   const provinceOnlyWords = new Map<string, number>();
 
-  for (const value of addressByOwner.values()) {
-    const { text, nonText } = addressText(value);
-    if (nonText) nonTextAddresses += 1;
-    const m = matchAddress(text, index);
+  for (const text of addresses) {
+    const { match: m, source } = resolveAddress(text, index, mappings);
+    if (source === "override") mappedManual += 1;
+    if (source === "rule") mappedByRule += 1;
     byLevel[m.level] += 1;
     if (m.level !== "empty" && m.wordCount <= 2) shortByLevel[m.level] += 1;
     if (m.hasPostalCode) withPostalCode += 1;
@@ -129,13 +111,13 @@ export async function getAddressProfile(): Promise<AddressProfile> {
 
   return {
     generatedAt: new Date().toISOString(),
-    totalTenants: addressByOwner.size,
+    totalTenants: addresses.length,
     byLevel,
     ambiguousRegency,
     provinceConflicts,
     veryShort: { total: ADDRESS_LEVELS.reduce((s, l) => s + shortByLevel[l], 0), byLevel: shortByLevel },
     withPostalCode,
-    nonTextAddresses,
+    nonTextAddresses: nonText,
     provinces: Array.from(provinces.entries())
       .map(([name, count]) => ({ name, count }))
       .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name)),
@@ -145,5 +127,6 @@ export async function getAddressProfile(): Promise<AddressProfile> {
     districts: shownDistricts,
     districtsHidden: { areas: hiddenDistricts.length, tenants: hiddenDistricts.reduce((s, d) => s + d.count, 0) },
     words: { unrecognized: topWords(unrecognizedWords), provinceOnly: topWords(provinceOnlyWords) },
+    mapping: { available: mappings !== null, manual: mappedManual, rule: mappedByRule },
   };
 }

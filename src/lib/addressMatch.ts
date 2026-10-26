@@ -1,4 +1,5 @@
-import { normalize, type RegionIndex } from "./regions";
+import { normalize } from "./normalize";
+import type { RegionIndex } from "./regions";
 
 export type AddressLevel = "empty" | "district" | "regency" | "province" | "foreign" | "unrecognized";
 
