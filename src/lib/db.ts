@@ -233,6 +233,12 @@ async function createSchema(): Promise<void> {
         created_by    TEXT NOT NULL,
         created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
       );
+      -- Bulk import (LLM suggestions reviewed on the mapping page): each
+      -- import is one batch so it can be undone as a whole. Manual mappings
+      -- keep source 'manual' and no batch.
+      ALTER TABLE address_overrides ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'manual';
+      ALTER TABLE address_overrides ADD COLUMN IF NOT EXISTS import_batch TEXT;
+      CREATE INDEX IF NOT EXISTS address_overrides_batch_idx ON address_overrides (import_batch);
     `);
     await client.query("COMMIT");
   } catch (err) {

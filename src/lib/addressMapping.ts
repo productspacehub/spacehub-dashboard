@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { matchAddress, type AddressLevel, type AddressMatch } from "./addressMatch";
 import { ensureSchema, query } from "./db";
 import { normalize } from "./normalize";
@@ -8,7 +8,7 @@ import { fetchTenantAddresses } from "./tenantAddresses";
 export type TargetKind = "district" | "regency" | "province" | "foreign" | "unmappable";
 export type MappingTarget = { kind: TargetKind; code: string | null };
 export type Rule = MappingTarget & { id: number; phrase: string; createdBy: string; createdAt: string };
-type Override = MappingTarget & { createdBy: string; createdAt: string };
+type Override = MappingTarget & { createdBy: string; createdAt: string; importBatch: string | null };
 export type Mappings = { overrides: Map<string, Override>; rules: Rule[] };
 export type MappingSource = "auto" | "rule" | "override";
 export type ResolvedAddress = { match: AddressMatch; source: MappingSource; ruleId?: number };
@@ -93,19 +93,29 @@ function asMatch(target: MappingTarget, base: AddressMatch, index: RegionIndex):
   };
 }
 
-// A rule only ever adds detail the automatic match didn't have, and never
-// contradicts what it did find: "Taman Rasuna, Jakarta Selatan" can go from
-// city to kecamatan via a rule, but a rule can't move it to Bandung.
-function ruleApplies(rule: Rule, auto: AddressMatch, index: RegionIndex): boolean {
-  // "Luar negeri" sits at the same detail as "tidak dikenali", so it's its
-  // own case: only for addresses nothing Indonesian was found in.
-  if (rule.kind === "foreign") return auto.level === "unrecognized";
+// How a proposed region relates to what automatic matching found in the
+// address text: does it add detail, and does it contradict a city/province
+// the address already names? ("Taman Rasuna, Jakarta Selatan" → a kecamatan
+// in Jakarta Selatan adds detail; → anywhere in Bandung contradicts.)
+export function compareToAuto(target: MappingTarget, auto: AddressMatch, index: RegionIndex): { addsDetail: boolean; contradicts: boolean } {
+  // "Luar negeri"/"tidak bisa dipetakan" sit at the same detail as "tidak
+  // dikenali": they only add anything where nothing Indonesian was found.
+  if (target.kind === "foreign" || target.kind === "unmappable") {
+    return { addsDetail: auto.level === "unrecognized", contradicts: auto.provinceCode !== null };
+  }
   const ambiguous = auto.level === "regency" && auto.regencyCodes.length > 1;
-  const addsDetail = TARGET_DETAIL[rule.kind] > DETAIL[auto.level] || (ambiguous && TARGET_DETAIL[rule.kind] >= DETAIL.regency);
-  if (!addsDetail) return false;
-  if (auto.provinceCode && provinceOfTarget(rule, index) !== auto.provinceCode) return false;
-  if (auto.regencyCodes.length > 0 && !auto.regencyCodes.includes(regencyOfTarget(rule, index) ?? "")) return false;
-  return true;
+  const addsDetail = TARGET_DETAIL[target.kind] > DETAIL[auto.level] || (ambiguous && TARGET_DETAIL[target.kind] >= DETAIL.regency);
+  const regency = regencyOfTarget(target, index);
+  const contradicts =
+    (auto.provinceCode !== null && provinceOfTarget(target, index) !== auto.provinceCode) ||
+    (auto.regencyCodes.length > 0 && regency !== null && !auto.regencyCodes.includes(regency));
+  return { addsDetail, contradicts };
+}
+
+// A rule only ever adds detail and never contradicts what the address names.
+function ruleApplies(rule: Rule, auto: AddressMatch, index: RegionIndex): boolean {
+  const { addsDetail, contradicts } = compareToAuto(rule, auto, index);
+  return addsDetail && !contradicts;
 }
 
 export function resolveAddress(text: string, index: RegionIndex, mappings: Mappings | null): ResolvedAddress {
@@ -121,20 +131,33 @@ export function resolveAddress(text: string, index: RegionIndex, mappings: Mappi
   return { match: auto, source: "auto" };
 }
 
-type OverrideRow = { address_hash: string; target_kind: TargetKind; target_code: string | null; created_by: string; created_at: string };
+type OverrideRow = {
+  address_hash: string;
+  target_kind: TargetKind;
+  target_code: string | null;
+  created_by: string;
+  created_at: string;
+  import_batch: string | null;
+};
 type RuleRow = { id: number; phrase: string; target_kind: TargetKind; target_code: string | null; created_by: string; created_at: string };
 
 export async function loadMappings(): Promise<Mappings> {
   await ensureSchema();
   const [overrides, rules] = await Promise.all([
-    query<OverrideRow>("SELECT address_hash, target_kind, target_code, created_by, created_at FROM address_overrides"),
+    query<OverrideRow>("SELECT address_hash, target_kind, target_code, created_by, created_at, import_batch FROM address_overrides"),
     query<RuleRow>("SELECT id, phrase, target_kind, target_code, created_by, created_at FROM address_rules ORDER BY phrase"),
   ]);
   return {
     overrides: new Map(
       overrides.map((o) => [
         o.address_hash,
-        { kind: o.target_kind, code: o.target_code, createdBy: o.created_by, createdAt: new Date(o.created_at).toISOString() },
+        {
+          kind: o.target_kind,
+          code: o.target_code,
+          createdBy: o.created_by,
+          createdAt: new Date(o.created_at).toISOString(),
+          importBatch: o.import_batch,
+        },
       ])
     ),
     rules: rules.map((r) => ({
@@ -153,9 +176,40 @@ export async function setOverride(hash: string, target: MappingTarget, by: strin
   await query(
     `INSERT INTO address_overrides (address_hash, target_kind, target_code, created_by)
      VALUES ($1, $2, $3, $4)
-     ON CONFLICT (address_hash) DO UPDATE SET target_kind = $2, target_code = $3, created_by = $4, created_at = now()`,
+     ON CONFLICT (address_hash) DO UPDATE
+       SET target_kind = $2, target_code = $3, created_by = $4, created_at = now(), source = 'manual', import_batch = NULL`,
     [hash, target.kind, target.code, by]
   );
+}
+
+// One import = one batch. Never overwrites an existing mapping (manual or from
+// an earlier import): the caller only sends addresses still in the queue, and
+// ON CONFLICT covers a mapping saved in the meantime.
+export async function applyImport(items: { hash: string; target: MappingTarget }[], by: string): Promise<{ batch: string; inserted: number }> {
+  await ensureSchema();
+  const batch = randomUUID();
+  if (items.length === 0) return { batch, inserted: 0 };
+  const params: unknown[] = [by, batch];
+  const values = items.map(({ hash, target }) => {
+    params.push(hash, target.kind, target.code);
+    const n = params.length;
+    return `($${n - 2}, $${n - 1}, $${n}, $1, 'import', $2)`;
+  });
+  const rows = await query(
+    `INSERT INTO address_overrides (address_hash, target_kind, target_code, created_by, source, import_batch)
+     VALUES ${values.join(", ")}
+     ON CONFLICT (address_hash) DO NOTHING
+     RETURNING address_hash`,
+    params
+  );
+  return { batch, inserted: rows.length };
+}
+
+// Removes only what is still from that batch — an address re-mapped by hand
+// since then keeps the manual mapping.
+export async function deleteImportBatch(batch: string): Promise<number> {
+  await ensureSchema();
+  return (await query("DELETE FROM address_overrides WHERE import_batch = $1 RETURNING address_hash", [batch])).length;
 }
 
 export async function deleteOverride(hash: string): Promise<boolean> {
@@ -275,8 +329,17 @@ export type QueueItem = {
 export type MappingOverview = {
   generatedAt: string;
   queue: QueueItem[];
-  overridden: { hash: string; text: string; tenants: number; label: string; createdBy: string; createdAt: string }[];
+  overridden: {
+    hash: string;
+    text: string;
+    tenants: number;
+    label: string;
+    createdBy: string;
+    createdAt: string;
+    importBatch: string | null;
+  }[];
   orphanOverrides: number;
+  importBatches: { batch: string; createdBy: string; createdAt: string; addresses: number }[];
   rules: { id: number; phrase: string; label: string; addresses: number; tenants: number; createdBy: string; createdAt: string }[];
 };
 
@@ -314,7 +377,15 @@ export async function getMappingOverview(): Promise<MappingOverview> {
     const r = resolveAddress(g.text, index, mappings);
     if (r.source === "override") {
       const o = mappings.overrides.get(hash)!;
-      overridden.push({ hash, text: g.text, tenants: g.tenants, label: targetLabel(o, index), createdBy: o.createdBy, createdAt: o.createdAt });
+      overridden.push({
+        hash,
+        text: g.text,
+        tenants: g.tenants,
+        label: targetLabel(o, index),
+        createdBy: o.createdBy,
+        createdAt: o.createdAt,
+        importBatch: o.importBatch,
+      });
     } else if (r.source === "rule") {
       const u = ruleUse.get(r.ruleId!) ?? { addresses: 0, tenants: 0 };
       u.addresses += 1;
@@ -328,11 +399,22 @@ export async function getMappingOverview(): Promise<MappingOverview> {
     }
   }
 
+  // Counted over every stored override, including ones whose address no
+  // longer exists, so undoing a batch shows what it will really remove.
+  const batches = new Map<string, MappingOverview["importBatches"][number]>();
+  for (const o of mappings.overrides.values()) {
+    if (!o.importBatch) continue;
+    const b = batches.get(o.importBatch);
+    if (b) b.addresses += 1;
+    else batches.set(o.importBatch, { batch: o.importBatch, createdBy: o.createdBy, createdAt: o.createdAt, addresses: 1 });
+  }
+
   return {
     generatedAt: new Date().toISOString(),
     queue: queue.sort((a, b) => b.tenants - a.tenants || a.text.localeCompare(b.text)),
     overridden: overridden.sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
     orphanOverrides: Array.from(mappings.overrides.keys()).filter((h) => !groups.has(h)).length,
+    importBatches: Array.from(batches.values()).sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
     rules: mappings.rules.map((rule) => ({
       id: rule.id,
       phrase: rule.phrase,

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { signOut, useSession } from "next-auth/react";
+import AddressImportPanel from "@/components/AddressImportPanel";
 import type { MappingOverview, QueueItem, RegionOption, TargetKind } from "@/lib/addressMapping";
 import { normalize } from "@/lib/normalize";
 
@@ -350,7 +351,11 @@ export default function AddressMappingPage() {
             <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-3">
               {[
                 ["Antrean", `${data.queue.length} alamat`, `${queueTenants} tenant`],
-                ["Dipetakan manual", `${data.overridden.length} alamat`, `${data.overridden.reduce((s, o) => s + o.tenants, 0)} tenant`],
+                [
+                  "Dipetakan manual",
+                  `${data.overridden.length} alamat`,
+                  `${data.overridden.reduce((s, o) => s + o.tenants, 0)} tenant · ${data.overridden.filter((o) => o.importBatch).length} dari impor`,
+                ],
                 ["Lewat aturan", `${ruleAddresses} alamat`, `${data.rules.length} aturan`],
               ].map(([label, value, sub]) => (
                 <div key={label} className="rounded-2xl border p-4" style={card}>
@@ -366,6 +371,8 @@ export default function AddressMappingPage() {
                 </div>
               ))}
             </div>
+
+            <AddressImportPanel queueSize={data.queue.length} batches={data.importBatches} onChanged={load} />
 
             <section className="mb-8 rounded-2xl border p-6" style={card}>
               <p className="mb-1 text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
@@ -475,7 +482,7 @@ export default function AddressMappingPage() {
                 Dipetakan manual ({data.overridden.length})
               </p>
               <p className="mb-4 text-xs" style={{ color: "var(--text-muted)" }}>
-                Batalkan untuk mengembalikan alamat ke antrean.
+                Termasuk hasil impor. Batalkan untuk mengembalikan alamat ke antrean.
                 {data.orphanOverrides > 0 &&
                   ` ${data.orphanOverrides} pemetaan lain untuk alamat yang sudah tidak dipakai tenant aktif (alamatnya berubah atau tenant sudah move-out).`}
               </p>
@@ -491,6 +498,11 @@ export default function AddressMappingPage() {
                         {o.text}
                       </p>
                       <p className="text-xs" style={{ color: "var(--text-muted)" }}>
+                        {o.importBatch && (
+                          <span className="mr-1.5 rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase" style={{ background: "rgba(25, 185, 234, 0.16)", color: "var(--series-1)" }}>
+                            impor
+                          </span>
+                        )}
                         → {o.label} · {o.tenants} tenant · oleh {o.createdBy}
                       </p>
                     </div>

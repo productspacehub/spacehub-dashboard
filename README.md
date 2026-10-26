@@ -335,6 +335,26 @@ Open [http://localhost:3000](http://localhost:3000) — you'll be redirected to
     "apartemen"…) are refused as phrases, and an existing rule is never
     silently repointed (409) — delete it first.
   - Precedence: override → rule → automatic match.
+  - **Bulk import via an LLM** (`src/lib/addressImport.ts`, run by hand —
+    the dashboard never calls an LLM): download the queue as CSV
+    (`/api/address-mapping/export`), give it to an LLM chat with the prompt
+    shown on the page, then paste or upload its answer.
+    - The export has `id` (first 12 hex characters of the address hash),
+      `alamat` and `terdeteksi`. House, unit, floor, block and RT/RW numbers
+      are removed; 5-digit postal codes and "Sektor 9"-style area numbers
+      are kept. No tenant names or contacts.
+    - The answer (CSV with comma/semicolon/tab, a ``` block, or a markdown
+      table; columns `id,kecamatan,kota_kabupaten,provinsi,status`) is
+      matched back by id and turned from region *names* into official codes
+      (`/api/address-mapping/import-preview`, saves nothing). Names that
+      don't agree with each other, or "tidak yakin", are skipped rather
+      than guessed. Suggestions that contradict the city/province written
+      in the address are shown but left unticked.
+    - Ticked rows are saved by `/api/address-mapping/import` as overrides
+      with `source = 'import'` and one `import_batch` id. Only addresses
+      still in the queue are taken, and an existing mapping is never
+      overwritten. "Batalkan impor ini" deletes a batch; anything re-mapped
+      by hand since then stays.
 - **Bookings** (`/bookings`) — the SpaceHub Centralized Booking System MVP.
   Deliberately kept separate from the dashboard above, including off the
   home page: it's a different tool for a different purpose (admin-driven
