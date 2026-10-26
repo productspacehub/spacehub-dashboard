@@ -5,7 +5,8 @@ import Image from "next/image";
 import Link from "next/link";
 import { signOut, useSession } from "next-auth/react";
 import type { AddressLevel } from "@/lib/addressMatch";
-import type { AddressProfile, WordCount } from "@/lib/addressProfile";
+import type { AddressProfile, ConversionRow, SegmentKey, SegmentProfile, WordCount } from "@/lib/addressProfile";
+import type { Segment } from "@/lib/customerAddresses";
 
 const LEVELS: { level: AddressLevel; label: string; hint: string; usable: boolean }[] = [
   { level: "district", label: "Sampai kecamatan", hint: "mis. Tebet, Jakarta Selatan", usable: true },
@@ -16,7 +17,22 @@ const LEVELS: { level: AddressLevel; label: string; hint: string; usable: boolea
   { level: "empty", label: "Kosong", hint: "alamat tidak diisi", usable: false },
 ];
 
+const SEGMENT_INFO: { key: Segment; label: string; hint: string }[] = [
+  { key: "active", label: "Tenant aktif", hint: "punya unit yang sedang disewa" },
+  { key: "reserved", label: "Reservasi", hint: "sudah reservasi, belum move-in" },
+  { key: "movedOut", label: "Sudah move-out", hint: "pernah sewa, sekarang tidak punya unit" },
+  { key: "neverRented", label: "Daftar, belum sewa", hint: "terdaftar tanpa riwayat sewa atau reservasi" },
+];
+const SEGMENT_LABEL: Record<SegmentKey, string> = {
+  all: "Semua",
+  active: "Tenant aktif",
+  reserved: "Reservasi",
+  movedOut: "Sudah move-out",
+  neverRented: "Daftar, belum sewa",
+};
+
 const TOP_REGENCIES = 15;
+const TOP_CONVERSION = 20;
 const card = { background: "var(--surface-1)", borderColor: "var(--gridline)" };
 
 function pct(part: number, total: number): string {
@@ -112,12 +128,124 @@ function WordList({ title, words, minAddresses }: { title: string; words: WordCo
   );
 }
 
+const cityOrBetterOf = (p: SegmentProfile) => p.byLevel.district + p.byLevel.regency;
+
+function SegmentTable({ segments }: { segments: AddressProfile["segments"] }) {
+  const rows = [
+    ...SEGMENT_INFO.map((s) => ({ ...s, p: segments[s.key]! })),
+    { key: "all", label: "Semua", hint: "", p: segments.all! },
+  ];
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="text-left text-[11px] font-bold tracking-wide uppercase" style={{ color: "var(--text-muted)" }}>
+            <th className="pb-2 font-bold">Kelompok</th>
+            <th className="pb-2 text-right font-bold">Orang</th>
+            <th className="pb-2 pl-3 text-right font-bold">Alamat terisi</th>
+            <th className="pb-2 pl-3 text-right font-bold">Sampai kota/kab.</th>
+          </tr>
+        </thead>
+        <tbody className="tabular-nums">
+          {rows.map(({ key, label, hint, p }) => {
+            const filled = p.total - p.byLevel.empty;
+            const total = key === "all";
+            return (
+              <tr key={key} style={{ borderTop: "1px solid var(--gridline)", fontWeight: total ? 600 : undefined }}>
+                <td className="py-2 pr-2" style={{ color: "var(--text-primary)" }}>
+                  {label}
+                  {hint && (
+                    <span className="block text-[11px] font-normal" style={{ color: "var(--text-muted)" }}>
+                      {hint}
+                    </span>
+                  )}
+                </td>
+                <td className="py-2 text-right" style={{ color: "var(--text-primary)" }}>
+                  {p.total}
+                </td>
+                <td className="py-2 pl-3 text-right whitespace-nowrap" style={{ color: "var(--text-secondary)" }}>
+                  {pct(filled, p.total)} <span className="text-xs" style={{ color: "var(--text-muted)" }}>({filled})</span>
+                </td>
+                <td className="py-2 pl-3 text-right whitespace-nowrap" style={{ color: "var(--text-secondary)" }}>
+                  {pct(cityOrBetterOf(p), p.total)} <span className="text-xs" style={{ color: "var(--text-muted)" }}>({cityOrBetterOf(p)})</span>
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+// Of the people from an area whose outcome is known (renting now, rented
+// before, or registered and never rented), the share who ever rented.
+// Reservations are still undecided, so they're left out of the rate.
+function ConversionTable({ rows, total }: { rows: ConversionRow[]; total: ConversionRow["counts"] }) {
+  const all = [...rows, { label: "Semua kota/kab. terdeteksi", provinceName: "", ambiguous: false, counts: total }];
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="text-left text-[11px] font-bold tracking-wide uppercase" style={{ color: "var(--text-muted)" }}>
+            <th className="pb-2 font-bold">Kota/kab.</th>
+            <th className="pb-2 pl-2 text-right font-bold">Aktif</th>
+            <th className="pb-2 pl-2 text-right font-bold">Move-out</th>
+            <th className="pb-2 pl-2 text-right font-bold">Belum sewa</th>
+            <th className="pb-2 pl-3 text-right font-bold sm:w-48">Pernah sewa</th>
+          </tr>
+        </thead>
+        <tbody className="tabular-nums">
+          {all.map((r, i) => {
+            const rented = r.counts.active + r.counts.movedOut;
+            const decided = rented + r.counts.neverRented;
+            const isTotal = i === all.length - 1;
+            return (
+              <tr key={r.label} style={{ borderTop: "1px solid var(--gridline)", fontWeight: isTotal ? 600 : undefined }}>
+                <td className="py-2 pr-2" style={{ color: "var(--text-primary)" }}>
+                  {r.label}
+                  {r.provinceName && (
+                    <span className="block text-[11px] font-normal" style={{ color: "var(--text-muted)" }}>
+                      {r.provinceName}
+                    </span>
+                  )}
+                </td>
+                <td className="py-2 pl-2 text-right" style={{ color: "var(--text-secondary)" }}>
+                  {r.counts.active}
+                </td>
+                <td className="py-2 pl-2 text-right" style={{ color: "var(--text-secondary)" }}>
+                  {r.counts.movedOut}
+                </td>
+                <td className="py-2 pl-2 text-right" style={{ color: "var(--text-secondary)" }}>
+                  {r.counts.neverRented}
+                </td>
+                <td className="py-2 pl-3">
+                  <div className="flex items-center justify-end gap-2">
+                    <div className="hidden h-2 flex-1 rounded-full sm:block" style={{ background: "var(--series-1-track)" }}>
+                      <div className="h-2 rounded-full" style={{ width: decided > 0 ? `${(rented / decided) * 100}%` : 0, background: "var(--series-1)" }} />
+                    </div>
+                    <span className="w-10 text-right" style={{ color: "var(--text-primary)" }}>
+                      {pct(rented, decided)}
+                    </span>
+                  </div>
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 export default function AddressProfilePage() {
   const { data: session } = useSession();
   const [data, setData] = useState<(AddressProfile & { mappingAllowed?: boolean }) | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [showAllRegencies, setShowAllRegencies] = useState(false);
+  const [showAllConversion, setShowAllConversion] = useState(false);
+  const [segment, setSegment] = useState<SegmentKey>("all");
   const abortRef = useRef<AbortController | null>(null);
 
   const load = useCallback(async () => {
@@ -145,10 +273,19 @@ export default function AddressProfilePage() {
     return () => abortRef.current?.abort();
   }, [load]);
 
-  const filled = data ? data.totalTenants - data.byLevel.empty : 0;
-  const usable = data ? data.byLevel.district + data.byLevel.regency + data.byLevel.province : 0;
-  const cityOrBetter = data ? data.byLevel.district + data.byLevel.regency : 0;
-  const regencies = data ? (showAllRegencies ? data.regencies : data.regencies.slice(0, TOP_REGENCIES)) : [];
+  // Falls back to active tenants when the other segments couldn't be read.
+  const segmentKey: SegmentKey = data?.segments[segment] ? segment : "active";
+  const p = data?.segments[segmentKey];
+  const filled = p ? p.total - p.byLevel.empty : 0;
+  const usable = p ? p.byLevel.district + p.byLevel.regency + p.byLevel.province : 0;
+  const cityOrBetter = p ? cityOrBetterOf(p) : 0;
+  const regencies = p ? (showAllRegencies ? p.regencies : p.regencies.slice(0, TOP_REGENCIES)) : [];
+  const conversionRows = data?.conversion
+    ? showAllConversion
+      ? data.conversion.rows
+      : data.conversion.rows.slice(0, TOP_CONVERSION)
+    : [];
+  const segmentKeys = (["all", "active", "reserved", "movedOut", "neverRented"] as SegmentKey[]).filter((k) => data?.segments[k]);
 
   return (
     <div className="min-h-screen px-6 py-10 sm:px-10">
@@ -158,7 +295,7 @@ export default function AddressProfilePage() {
             <Image src="/spacehub-logo.webp" alt="SpaceHub" width={121} height={36} priority />
             <span className="hidden h-6 w-px sm:block" style={{ background: "var(--gridline)" }} />
             <h1 className="hidden text-sm font-medium sm:block" style={{ color: "var(--text-secondary)" }}>
-              Profil Alamat Tenant
+              Profil Alamat Pelanggan
             </h1>
           </div>
           <div className="flex items-baseline gap-4">
@@ -201,20 +338,111 @@ export default function AddressProfilePage() {
 
         {loading && !data && <p style={{ color: "var(--text-secondary)" }}>Memuat profil alamat…</p>}
 
-        {data && (
+        {data && p && (
           <div style={{ opacity: loading ? 0.5 : 1, transition: "opacity 150ms ease", pointerEvents: loading ? "none" : "auto" }}>
             <p className="mb-6 text-xs leading-relaxed" style={{ color: "var(--text-muted)" }}>
-              Pemetaan isi alamat {data.totalTenants} tenant aktif sebelum dibuat laporan demografi. Halaman ini hanya
-              menampilkan angka gabungan — tidak ada alamat atau nama tenant yang ditampilkan.
+              Isi alamat semua pelanggan yang terdaftar di Storeganise — tenant aktif, reservasi, yang sudah move-out, dan
+              yang mendaftar tapi belum pernah sewa. Halaman ini hanya menampilkan angka gabungan — tidak ada alamat atau
+              nama pelanggan yang ditampilkan.
             </p>
 
-            <Section title="Seberapa detail alamat bisa dikenali" subtitle="Tingkat paling detail yang bisa dikenali dari tiap alamat. Biru = bisa dipakai untuk laporan wilayah.">
+            {data.others.available ? (
+              <>
+                <Section
+                  title="Kelompok pelanggan"
+                  subtitle="Satu orang masuk satu kelompok: unit aktif lebih dulu, lalu reservasi, lalu riwayat sewa. Perhatikan kolom alamat terisi — angka per wilayah di bawah hanya mewakili yang mengisi alamat."
+                >
+                  <SegmentTable segments={data.segments} />
+                  <ul className="mt-4 list-disc space-y-1 pl-5 text-xs leading-relaxed" style={{ color: "var(--text-muted)" }}>
+                    <li>
+                      {data.others.usersInList} user di daftar user Storeganise, {data.others.listWithAddress} di antaranya
+                      mengisi alamat.
+                    </li>
+                    {data.others.staffExcluded > 0 && (
+                      <li>
+                        {data.others.staffExcluded} akun @spacehub.id tanpa riwayat sewa tidak dihitung (kemungkinan akun staf
+                        atau tes).
+                      </li>
+                    )}
+                    {data.others.usersInList > 0 && data.others.listWithAddress === 0 && (
+                      <li style={{ color: "var(--status-warning)" }}>
+                        Tidak ada satu pun user di daftar yang membawa alamat — kemungkinan daftar user dari API tidak
+                        menyertakan field alamat, jadi kelompok selain tenant aktif terlihat kosong.
+                      </li>
+                    )}
+                  </ul>
+                </Section>
+
+                {data.conversion && (
+                  <Section
+                    title="Pernah sewa vs. belum, per kota/kabupaten"
+                    subtitle={`Dari orang yang alamatnya terbaca sampai kota/kabupaten: berapa persen yang pernah menyewa (aktif atau sudah move-out) dibanding yang mendaftar tapi belum pernah sewa. Reservasi tidak dihitung karena belum selesai. Hanya kota/kab. dengan minimal 10 orang${
+                      data.conversion.hidden.areas > 0
+                        ? ` — ${data.conversion.hidden.areas} kota/kab. lain (${data.conversion.hidden.people} orang) tidak ditampilkan, tapi tetap masuk baris total`
+                        : ""
+                    }.`}
+                  >
+                    {data.conversion.rows.length === 0 ? (
+                      <p className="mb-4 text-sm" style={{ color: "var(--text-muted)" }}>
+                        Belum ada kota/kabupaten dengan 10 orang atau lebih.
+                      </p>
+                    ) : null}
+                    <ConversionTable rows={conversionRows} total={data.conversion.total} />
+                    {data.conversion.rows.length > TOP_CONVERSION && (
+                      <button onClick={() => setShowAllConversion((v) => !v)} className="mt-4 text-xs hover:underline" style={{ color: "var(--series-1)" }}>
+                        {showAllConversion ? "Tampilkan lebih sedikit" : `Tampilkan semua (${data.conversion.rows.length})`}
+                      </button>
+                    )}
+                    <p className="mt-4 text-xs leading-relaxed" style={{ color: "var(--text-muted)" }}>
+                      Hati-hati membacanya: angka ini hanya adil kalau orang yang belum sewa sama rajinnya mengisi alamat
+                      seperti yang sudah sewa (bandingkan kolom alamat terisi di tabel kelompok). Kalau alamat baru diisi di
+                      tahap akhir pemesanan, &quot;belum sewa&quot; di sini berarti orang yang batal di langkah terakhir.
+                    </p>
+                  </Section>
+                )}
+              </>
+            ) : (
+              <div className="mb-6 rounded-lg border px-4 py-3 text-xs leading-relaxed" style={{ borderColor: "var(--status-warning)", color: "var(--text-secondary)", background: "var(--surface-1)" }}>
+                <b style={{ color: "var(--status-warning)" }}>Hanya tenant aktif.</b> Daftar user atau riwayat rental dari
+                Storeganise tidak bisa dibaca, jadi kelompok lain tidak ditampilkan: {data.others.error}
+              </div>
+            )}
+
+            <div className="mb-4">
+              <p className="mb-2 text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
+                Profil per kelompok
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {segmentKeys.map((k) => {
+                  const active = k === segmentKey;
+                  return (
+                    <button
+                      key={k}
+                      onClick={() => setSegment(k)}
+                      className="rounded-full px-3 py-1.5 text-sm font-medium"
+                      style={{
+                        background: active ? "var(--series-1)" : "transparent",
+                        color: active ? "var(--background)" : "var(--text-secondary)",
+                        border: active ? "none" : "1px solid var(--gridline)",
+                      }}
+                    >
+                      {SEGMENT_LABEL[k]} ({data.segments[k]!.total})
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            <Section
+              title={`Seberapa detail alamat bisa dikenali — ${SEGMENT_LABEL[segmentKey].toLowerCase()}`}
+              subtitle="Tingkat paling detail yang bisa dikenali dari tiap alamat. Biru = bisa dipakai untuk laporan wilayah."
+            >
               <BarList
-                total={data.totalTenants}
+                total={p.total}
                 rows={LEVELS.map((l) => ({
                   key: l.level,
                   muted: !l.usable,
-                  count: data.byLevel[l.level],
+                  count: p.byLevel[l.level],
                   label: (
                     <>
                       {l.label}
@@ -226,35 +454,35 @@ export default function AddressProfilePage() {
                 }))}
               />
               <div className="mt-6 grid grid-cols-2 gap-5 sm:grid-cols-4">
-                <Stat label="Bisa dipakai" value={pct(usable, data.totalTenants)} sub={`${usable} tenant, minimal provinsi`} />
-                <Stat label="Sampai kota/kab." value={pct(cityOrBetter, data.totalTenants)} sub={`${cityOrBetter} tenant`} />
-                <Stat label="Sangat pendek" value={String(data.veryShort.total)} sub="alamat 1–2 kata" />
-                <Stat label="Ada kode pos" value={pct(data.withPostalCode, filled)} sub={`${data.withPostalCode} dari ${filled} yang terisi`} />
+                <Stat label="Bisa dipakai" value={pct(usable, p.total)} sub={`${usable} orang, minimal provinsi`} />
+                <Stat label="Sampai kota/kab." value={pct(cityOrBetter, p.total)} sub={`${cityOrBetter} orang`} />
+                <Stat label="Sangat pendek" value={String(p.veryShort.total)} sub="alamat 1–2 kata" />
+                <Stat label="Ada kode pos" value={pct(p.withPostalCode, filled)} sub={`${p.withPostalCode} dari ${filled} yang terisi`} />
               </div>
               <ul className="mt-5 list-disc space-y-1 pl-5 text-xs leading-relaxed" style={{ color: "var(--text-muted)" }}>
-                {data.veryShort.total > 0 && (
+                {p.veryShort.total > 0 && (
                   <li>
-                    Dari {data.veryShort.total} alamat sangat pendek:{" "}
-                    {LEVELS.filter((l) => data.veryShort.byLevel[l.level] > 0)
-                      .map((l) => `${l.label.toLowerCase()} ${data.veryShort.byLevel[l.level]}`)
+                    Dari {p.veryShort.total} alamat sangat pendek:{" "}
+                    {LEVELS.filter((l) => p.veryShort.byLevel[l.level] > 0)
+                      .map((l) => `${l.label.toLowerCase()} ${p.veryShort.byLevel[l.level]}`)
                       .join(" · ")}
                     .
                   </li>
                 )}
                 <li>
-                  {data.ambiguousRegency} alamat hanya menyebut nama yang dipakai kota sekaligus kabupaten (mis.
+                  {p.ambiguousRegency} alamat hanya menyebut nama yang dipakai kota sekaligus kabupaten (mis.
                   &quot;Bogor&quot;, &quot;Tangerang&quot;), jadi tidak bisa dipastikan yang mana.
                 </li>
                 <li>
-                  {data.provinceConflicts} alamat menyebut provinsi yang berbeda dengan kotanya (mis. &quot;Tangerang
+                  {p.provinceConflicts} alamat menyebut provinsi yang berbeda dengan kotanya (mis. &quot;Tangerang
                   Selatan, Jakarta&quot;) — kotanya yang dipakai.
                 </li>
-                {!data.mapping.available && (
+                {!data.mappingAvailable && (
                   <li style={{ color: "var(--status-warning)" }}>Pemetaan manual tidak bisa dimuat — angka di atas hasil pencocokan otomatis saja.</li>
                 )}
-                {data.mapping.manual + data.mapping.rule > 0 && (
+                {p.mapping.manual + p.mapping.rule > 0 && (
                   <li>
-                    Sudah termasuk {data.mapping.manual} alamat yang dipetakan manual dan {data.mapping.rule} lewat aturan.
+                    Sudah termasuk {p.mapping.manual} alamat yang dipetakan manual dan {p.mapping.rule} lewat aturan.
                   </li>
                 )}
                 {data.nonTextAddresses > 0 && <li>{data.nonTextAddresses} alamat dari API tidak berbentuk teks biasa dan digabung otomatis.</li>}
@@ -262,12 +490,12 @@ export default function AddressProfilePage() {
             </Section>
 
             <Section title="Provinsi" subtitle="Termasuk yang provinsinya diketahui dari kota atau kecamatan.">
-              <BarList total={data.totalTenants} rows={data.provinces.map((p) => ({ key: p.name, label: p.name, count: p.count }))} />
+              <BarList total={p.total} rows={p.provinces.map((r) => ({ key: r.name, label: r.name, count: r.count }))} />
             </Section>
 
-            <Section title="Kota/kabupaten" subtitle={`${data.regencies.length} kota/kabupaten terdeteksi.`}>
+            <Section title="Kota/kabupaten" subtitle={`${p.regencies.length} kota/kabupaten terdeteksi.`}>
               <BarList
-                total={data.totalTenants}
+                total={p.total}
                 rows={regencies.map((r) => ({
                   key: r.label,
                   count: r.count,
@@ -281,27 +509,27 @@ export default function AddressProfilePage() {
                   ),
                 }))}
               />
-              {data.regencies.length > TOP_REGENCIES && (
+              {p.regencies.length > TOP_REGENCIES && (
                 <button onClick={() => setShowAllRegencies((v) => !v)} className="mt-4 text-xs hover:underline" style={{ color: "var(--series-1)" }}>
-                  {showAllRegencies ? "Tampilkan lebih sedikit" : `Tampilkan semua (${data.regencies.length})`}
+                  {showAllRegencies ? "Tampilkan lebih sedikit" : `Tampilkan semua (${p.regencies.length})`}
                 </button>
               )}
             </Section>
 
             <Section
               title="Kecamatan"
-              subtitle={`Hanya kecamatan dengan minimal 3 tenant.${
-                data.districtsHidden.areas > 0 ? ` ${data.districtsHidden.areas} kecamatan lain (${data.districtsHidden.tenants} tenant) tidak ditampilkan.` : ""
+              subtitle={`Hanya kecamatan dengan minimal 3 orang.${
+                p.districtsHidden.areas > 0 ? ` ${p.districtsHidden.areas} kecamatan lain (${p.districtsHidden.people} orang) tidak ditampilkan.` : ""
               }`}
             >
-              {data.districts.length === 0 ? (
+              {p.districts.length === 0 ? (
                 <p className="text-sm" style={{ color: "var(--text-muted)" }}>
-                  Belum ada kecamatan dengan 3 tenant atau lebih.
+                  Belum ada kecamatan dengan 3 orang atau lebih.
                 </p>
               ) : (
                 <BarList
-                  total={data.totalTenants}
-                  rows={data.districts.map((d) => ({
+                  total={p.total}
+                  rows={p.districts.map((d) => ({
                     key: `${d.name}-${d.regencyLabel}`,
                     count: d.count,
                     label: (
@@ -322,8 +550,8 @@ export default function AddressProfilePage() {
               subtitle="Hanya kata yang muncul di minimal 5 alamat. Bahan untuk menambah nama area/singkatan (mis. BSD, Bintaro, PIK) supaya lebih banyak alamat bisa dikenali — setelah dikonfirmasi tim yang paham area-areanya."
             >
               <div className="grid gap-6 sm:grid-cols-2">
-                <WordList title={`Di alamat yang tidak dikenali (${data.byLevel.unrecognized})`} words={data.words.unrecognized} minAddresses={5} />
-                <WordList title={`Di alamat yang hanya terbaca provinsi (${data.byLevel.province})`} words={data.words.provinceOnly} minAddresses={5} />
+                <WordList title={`Di alamat yang tidak dikenali (${p.byLevel.unrecognized})`} words={p.words.unrecognized} minAddresses={5} />
+                <WordList title={`Di alamat yang hanya terbaca provinsi (${p.byLevel.province})`} words={p.words.provinceOnly} minAddresses={5} />
               </div>
             </Section>
 

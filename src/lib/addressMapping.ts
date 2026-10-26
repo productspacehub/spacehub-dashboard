@@ -3,7 +3,7 @@ import { matchAddress, type AddressLevel, type AddressMatch } from "./addressMat
 import { ensureSchema, query } from "./db";
 import { normalize } from "./normalize";
 import { loadRegionIndex, regencyLabel, shortProvince, shortRegency, type RegionIndex } from "./regions";
-import { fetchTenantAddresses } from "./tenantAddresses";
+import { fetchCustomerAddresses } from "./customerAddresses";
 
 export type TargetKind = "district" | "regency" | "province" | "foreign" | "unmappable";
 export type MappingTarget = { kind: TargetKind; code: string | null };
@@ -320,7 +320,9 @@ export function searchRegions(q: string, index: RegionIndex, limit = 20): Region
 export type QueueItem = {
   hash: string;
   text: string;
-  tenants: number;
+  people: number;
+  // of whom active tenants
+  active: number;
   autoLabel: string;
   autoLevel: AddressLevel;
   ambiguous: boolean;
@@ -332,7 +334,7 @@ export type MappingOverview = {
   overridden: {
     hash: string;
     text: string;
-    tenants: number;
+    people: number;
     label: string;
     createdBy: string;
     createdAt: string;
@@ -340,7 +342,9 @@ export type MappingOverview = {
   }[];
   orphanOverrides: number;
   importBatches: { batch: string; createdBy: string; createdAt: string; addresses: number }[];
-  rules: { id: number; phrase: string; label: string; addresses: number; tenants: number; createdBy: string; createdAt: string }[];
+  rules: { id: number; phrase: string; label: string; addresses: number; people: number; createdBy: string; createdAt: string }[];
+  // Set when only active tenants' addresses could be read.
+  othersError: string | null;
 };
 
 function autoLabel(m: AddressMatch, index: RegionIndex): string {
@@ -358,21 +362,23 @@ function autoLabel(m: AddressMatch, index: RegionIndex): string {
 
 // Full address text is in here — only for the restricted mapping page.
 export async function getMappingOverview(): Promise<MappingOverview> {
-  const [index, { addresses }, mappings] = await Promise.all([loadRegionIndex(), fetchTenantAddresses(), loadMappings()]);
+  const [index, { customers, others }, mappings] = await Promise.all([loadRegionIndex(), fetchCustomerAddresses(), loadMappings()]);
 
+  // Every customer's address — active, reserved, moved out, never rented.
   // Identical addresses (after normalizing) are one item: map once, done.
-  const groups = new Map<string, { text: string; tenants: number }>();
-  for (const text of addresses) {
+  const groups = new Map<string, { text: string; people: number; active: number }>();
+  for (const { address: text, segment } of customers) {
     if (!normalize(text)) continue;
     const hash = addressHash(text);
-    const g = groups.get(hash);
-    if (g) g.tenants += 1;
-    else groups.set(hash, { text: text.trim(), tenants: 1 });
+    const g = groups.get(hash) ?? { text: text.trim(), people: 0, active: 0 };
+    g.people += 1;
+    if (segment === "active") g.active += 1;
+    groups.set(hash, g);
   }
 
   const queue: QueueItem[] = [];
   const overridden: MappingOverview["overridden"] = [];
-  const ruleUse = new Map<number, { addresses: number; tenants: number }>();
+  const ruleUse = new Map<number, { addresses: number; people: number }>();
   for (const [hash, g] of groups) {
     const r = resolveAddress(g.text, index, mappings);
     if (r.source === "override") {
@@ -380,21 +386,21 @@ export async function getMappingOverview(): Promise<MappingOverview> {
       overridden.push({
         hash,
         text: g.text,
-        tenants: g.tenants,
+        people: g.people,
         label: targetLabel(o, index),
         createdBy: o.createdBy,
         createdAt: o.createdAt,
         importBatch: o.importBatch,
       });
     } else if (r.source === "rule") {
-      const u = ruleUse.get(r.ruleId!) ?? { addresses: 0, tenants: 0 };
+      const u = ruleUse.get(r.ruleId!) ?? { addresses: 0, people: 0 };
       u.addresses += 1;
-      u.tenants += g.tenants;
+      u.people += g.people;
       ruleUse.set(r.ruleId!, u);
     } else {
       const ambiguous = r.match.level === "regency" && r.match.regencyCodes.length > 1;
       if (DETAIL[r.match.level] < DETAIL.regency || ambiguous) {
-        queue.push({ hash, text: g.text, tenants: g.tenants, autoLabel: autoLabel(r.match, index), autoLevel: r.match.level, ambiguous });
+        queue.push({ hash, text: g.text, people: g.people, active: g.active, autoLabel: autoLabel(r.match, index), autoLevel: r.match.level, ambiguous });
       }
     }
   }
@@ -411,15 +417,16 @@ export async function getMappingOverview(): Promise<MappingOverview> {
 
   return {
     generatedAt: new Date().toISOString(),
-    queue: queue.sort((a, b) => b.tenants - a.tenants || a.text.localeCompare(b.text)),
+    queue: queue.sort((a, b) => b.people - a.people || a.text.localeCompare(b.text)),
     overridden: overridden.sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
     orphanOverrides: Array.from(mappings.overrides.keys()).filter((h) => !groups.has(h)).length,
+    othersError: others.available ? null : others.error,
     importBatches: Array.from(batches.values()).sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
     rules: mappings.rules.map((rule) => ({
       id: rule.id,
       phrase: rule.phrase,
       label: targetLabel(rule, index),
-      ...(ruleUse.get(rule.id) ?? { addresses: 0, tenants: 0 }),
+      ...(ruleUse.get(rule.id) ?? { addresses: 0, people: 0 }),
       createdBy: rule.createdBy,
       createdAt: rule.createdAt,
     })),

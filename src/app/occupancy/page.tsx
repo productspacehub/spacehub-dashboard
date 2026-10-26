@@ -151,7 +151,7 @@ export default function OccupancyDetailPage() {
             ← Back to summary
           </Link>
           <Link href="/address-profile" className="text-sm hover:underline" style={{ color: "var(--series-1)" }}>
-            Profil alamat tenant →
+            Profil alamat pelanggan →
           </Link>
         </div>
 

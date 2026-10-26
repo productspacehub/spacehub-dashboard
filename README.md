@@ -263,14 +263,30 @@ Open [http://localhost:3000](http://localhost:3000) — you'll be redirected to
     validated logic.
 - `src/lib/regions.ts` / `src/lib/addressMatch.ts` / `src/lib/addressProfile.ts`
   / `/api/address-profile` / `/address-profile` (linked from `/occupancy`) —
-  **Profil Alamat Tenant**: a first look at what active tenants actually typed
-  into Storeganise's user `address` field (one free-text box — anything from
-  a full street address to just "Jakarta"), before building a demographic
-  report on top of it. Aggregates only: no address or tenant name ever leaves
-  the server.
-  - Addresses come from `unit-rentals?state=occupied&include=owner` (the
-    owner object carries `address`), one per tenant however many units they
-    rent.
+  **Profil Alamat Pelanggan**: what customers actually typed into
+  Storeganise's user `address` field (one free-text box — anything from a
+  full street address to just "Jakarta"), as groundwork for demographic
+  reports. Aggregates only: no address or customer name ever leaves the
+  server.
+  - Covers every customer in Storeganise, one per person, in exactly one
+    segment (`src/lib/customerAddresses.ts`), checked in this order:
+    - **active** — owns an occupied rental; address from
+      `unit-rentals?state=occupied&include=owner` (the owner object carries
+      `address`).
+    - **reserved** — has a `reserved` rental, not moved in yet.
+    - **moved out** — has an `ended` rental.
+    - **registered, never rented** — in the user list (`/v1/admin/users`)
+      with none of the above. `@spacehub.id` accounts in this segment are
+      left out as staff/test accounts (counted on the page).
+    If the user list or the ended/reserved rental lists can't be read, the
+    page (and the mapping queue) fall back to active tenants and say why.
+  - A segment selector switches every section below it; a table above shows
+    people, address fill rate and "down to kota/kab." per segment.
+  - **Pernah sewa vs. belum, per kota/kabupaten**: per regency, active /
+    moved out / never rented, and the share who ever rented (reservations
+    left out as undecided). Only regencies with 10+ such people are listed;
+    the total row includes the rest. Only fair if never-renters fill in
+    their address as often as renters do — compare fill rates first.
   - Each address is matched against official Kemendagri province /
     regency / district names from the `idn-area-data` package (data © its
     contributors under the Open Database License; read from the package at
@@ -297,7 +313,7 @@ Open [http://localhost:3000](http://localhost:3000) — you'll be redirected to
   - Shows: level reached per address (kecamatan / kota-kab / provinsi /
     luar negeri / tidak dikenali / kosong), very short (1–2 word) inputs,
     postal-code presence, ambiguous and province-conflicting matches,
-    province / regency counts, kecamatan with at least 3 tenants, and words
+    province / regency counts, kecamatan with at least 3 people, and words
     appearing in at least 5 unrecognized or province-only addresses —
     candidates for new area aliases, to be confirmed by someone who knows
     the areas rather than guessed.
@@ -309,7 +325,8 @@ Open [http://localhost:3000](http://localhost:3000) — you'll be redirected to
     loaded it falls back to automatic only and says so.
 - `src/lib/addressMapping.ts` / `/api/address-mapping/*` / `/address-mapping`
   (linked from `/address-profile`) — **Pemetaan Alamat**: manual mapping for
-  the addresses automatic matching couldn't place down to an unambiguous
+  the addresses (of every customer segment above; filterable to active
+  tenants) automatic matching couldn't place down to an unambiguous
   city (unrecognized, province-only, foreign, Kota/Kab. ambiguous). In
   production the most common words in unrecognized addresses were building
   words (tower, apartemen, apt, taman), i.e. mostly apartment/building names

@@ -104,7 +104,7 @@ function MappingForm({
   const preview = useMemo(() => {
     if (normalizedPhrase.length < 4) return null;
     const others = queue.filter((q) => q.hash !== item.hash && ` ${normalize(q.text)} `.includes(` ${normalizedPhrase} `));
-    return { others, tenants: others.reduce((s, q) => s + q.tenants, 0) };
+    return { others, people: others.reduce((s, q) => s + q.people, 0) };
   }, [normalizedPhrase, queue, item.hash]);
 
   const save = async () => {
@@ -200,7 +200,7 @@ function MappingForm({
           )}
           {preview && !existingRule && (
             <div className="mt-2 text-xs leading-relaxed" style={{ color: "var(--text-muted)" }}>
-              Berlaku untuk maksimal {preview.others.length} alamat lain di antrean ({preview.tenants} tenant), dan alamat baru
+              Berlaku untuk maksimal {preview.others.length} alamat lain di antrean ({preview.people} orang), dan alamat baru
               yang memuat &quot;{normalizedPhrase}&quot;.
               {preview.others.length > 0 && (
                 <ul className="mt-1 list-disc pl-5">
@@ -244,6 +244,7 @@ export default function AddressMappingPage() {
   const [forbidden, setForbidden] = useState(false);
   const [filter, setFilter] = useState<Filter>("all");
   const [search, setSearch] = useState("");
+  const [activeOnly, setActiveOnly] = useState(false);
   const [openHash, setOpenHash] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
 
@@ -291,9 +292,13 @@ export default function AddressMappingPage() {
 
   const normalizedSearch = normalize(search);
   const visible = (data?.queue ?? []).filter(
-    (q) => (filter === "all" || filterOf(q) === filter) && (!normalizedSearch || normalize(q.text).includes(normalizedSearch))
+    (q) =>
+      (filter === "all" || filterOf(q) === filter) &&
+      (!activeOnly || q.active > 0) &&
+      (!normalizedSearch || normalize(q.text).includes(normalizedSearch))
   );
-  const queueTenants = (data?.queue ?? []).reduce((s, q) => s + q.tenants, 0);
+  const queuePeople = (data?.queue ?? []).reduce((s, q) => s + q.people, 0);
+  const queueActive = (data?.queue ?? []).filter((q) => q.active > 0).length;
   const ruleAddresses = (data?.rules ?? []).reduce((s, r) => s + r.addresses, 0);
 
   return (
@@ -348,13 +353,20 @@ export default function AddressMappingPage() {
               ke luar tim. Dashboard tidak menyimpan alamat — hanya sidik (hash) teks alamat dan wilayah yang Anda pilih.
             </div>
 
+            {data.othersError && (
+              <div className="mb-6 rounded-lg border px-4 py-3 text-xs leading-relaxed" style={{ borderColor: "var(--status-warning)", color: "var(--text-secondary)", background: "var(--surface-1)" }}>
+                <b style={{ color: "var(--status-warning)" }}>Hanya alamat tenant aktif.</b> Daftar user atau riwayat rental dari
+                Storeganise tidak bisa dibaca, jadi alamat pelanggan lain belum masuk antrean: {data.othersError}
+              </div>
+            )}
+
             <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-3">
               {[
-                ["Antrean", `${data.queue.length} alamat`, `${queueTenants} tenant`],
+                ["Antrean", `${data.queue.length} alamat`, `${queuePeople} orang`],
                 [
                   "Dipetakan manual",
                   `${data.overridden.length} alamat`,
-                  `${data.overridden.reduce((s, o) => s + o.tenants, 0)} tenant · ${data.overridden.filter((o) => o.importBatch).length} dari impor`,
+                  `${data.overridden.reduce((s, o) => s + o.people, 0)} orang · ${data.overridden.filter((o) => o.importBatch).length} dari impor`,
                 ],
                 ["Lewat aturan", `${ruleAddresses} alamat`, `${data.rules.length} aturan`],
               ].map(([label, value, sub]) => (
@@ -379,8 +391,9 @@ export default function AddressMappingPage() {
                 Antrean alamat
               </p>
               <p className="mb-4 text-xs leading-relaxed" style={{ color: "var(--text-muted)" }}>
-                Alamat tenant aktif yang belum bisa dikenali sampai kota/kabupaten. Alamat yang teksnya sama digabung — sekali
-                petakan berlaku untuk semuanya.
+                Alamat semua pelanggan — tenant aktif, reservasi, sudah move-out, dan yang mendaftar tapi belum pernah sewa —
+                yang belum bisa dikenali sampai kota/kabupaten. Alamat yang teksnya sama digabung — sekali petakan berlaku untuk
+                semuanya.
               </p>
               <div className="mb-3 flex flex-wrap gap-2">
                 {FILTERS.map((f) => (
@@ -393,9 +406,13 @@ export default function AddressMappingPage() {
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder="Cari di antrean…"
-                className="mb-4 w-full rounded-lg px-3 py-2 text-sm"
+                className="mb-3 w-full rounded-lg px-3 py-2 text-sm"
                 style={inputStyle}
               />
+              <label className="mb-4 flex items-center gap-2 text-xs" style={{ color: "var(--text-secondary)" }}>
+                <input type="checkbox" checked={activeOnly} onChange={(e) => setActiveOnly(e.target.checked)} />
+                Hanya alamat tenant aktif ({queueActive})
+              </label>
               {visible.length === 0 ? (
                 <p className="text-sm" style={{ color: "var(--text-muted)" }}>
                   {data.queue.length === 0 ? "Antrean kosong — semua alamat sudah bisa dikenali atau dipetakan." : "Tidak ada alamat yang cocok."}
@@ -410,7 +427,7 @@ export default function AddressMappingPage() {
                             {q.text}
                           </p>
                           <p className="mt-0.5 text-xs" style={{ color: "var(--text-muted)" }}>
-                            {q.autoLabel} · {q.tenants} tenant
+                            {q.autoLabel} · {q.people} orang{q.active > 0 ? ` (${q.active} tenant aktif)` : ""}
                           </p>
                         </div>
                         {openHash !== q.hash && (
@@ -461,7 +478,7 @@ export default function AddressMappingPage() {
                       <span style={{ color: "var(--text-muted)" }}> → </span>
                       <span style={{ color: "var(--text-primary)" }}>{r.label}</span>
                       <p className="text-xs" style={{ color: "var(--text-muted)" }}>
-                        dipakai {r.addresses} alamat ({r.tenants} tenant) · oleh {r.createdBy}
+                        dipakai {r.addresses} alamat ({r.people} orang) · oleh {r.createdBy}
                       </p>
                     </div>
                     <button
@@ -503,7 +520,7 @@ export default function AddressMappingPage() {
                             impor
                           </span>
                         )}
-                        → {o.label} · {o.tenants} tenant · oleh {o.createdBy}
+                        → {o.label} · {o.people} orang · oleh {o.createdBy}
                       </p>
                     </div>
                     <button
