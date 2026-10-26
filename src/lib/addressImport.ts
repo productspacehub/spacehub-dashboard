@@ -1,5 +1,6 @@
 import type { AddressMatch } from "./addressMatch";
 import { compareToAuto, targetLabel, type MappingTarget } from "./addressMapping";
+import { countryFromName } from "./countries";
 import { normalize } from "./normalize";
 import type { RegionIndex } from "./regions";
 
@@ -108,13 +109,22 @@ export function parseTable(raw: string): string[][] {
 }
 
 export type SuggestionStatus = "ok" | "unsure" | "foreign";
-export type ImportedRow = { id: string; kecamatan: string; kota: string; provinsi: string; status: SuggestionStatus; line: number };
+export type ImportedRow = {
+  id: string;
+  kecamatan: string;
+  kota: string;
+  provinsi: string;
+  negara: string;
+  status: SuggestionStatus;
+  line: number;
+};
 
-const HEADERS: Record<"id" | "kecamatan" | "kota" | "provinsi" | "status", string[]> = {
+const HEADERS: Record<"id" | "kecamatan" | "kota" | "provinsi" | "negara" | "status", string[]> = {
   id: ["id"],
   kecamatan: ["kecamatan", "kec", "district"],
   kota: ["kota kabupaten", "kota kab", "kota", "kabupaten", "city", "regency"],
   provinsi: ["provinsi", "prov", "province"],
+  negara: ["negara", "country"],
   status: ["status", "keyakinan", "confidence"],
 };
 
@@ -130,9 +140,16 @@ export function parseImport(raw: string): { rows: ImportedRow[]; error: string |
   if (table.length < 2) return { rows: [], error: "Tidak ada data — tempel CSV lengkap dengan baris judul (header)." };
   const header = table[0].map((h) => normalize(h));
   const col = (key: keyof typeof HEADERS) => header.findIndex((h) => HEADERS[key].includes(h));
-  const idx = { id: col("id"), kecamatan: col("kecamatan"), kota: col("kota"), provinsi: col("provinsi"), status: col("status") };
+  const idx = {
+    id: col("id"),
+    kecamatan: col("kecamatan"),
+    kota: col("kota"),
+    provinsi: col("provinsi"),
+    negara: col("negara"),
+    status: col("status"),
+  };
   if (idx.id < 0) return { rows: [], error: 'Kolom "id" tidak ditemukan di baris judul.' };
-  if (idx.kecamatan < 0 && idx.kota < 0 && idx.provinsi < 0) {
+  if (idx.kecamatan < 0 && idx.kota < 0 && idx.provinsi < 0 && idx.negara < 0) {
     return { rows: [], error: "Tidak ada kolom kecamatan / kota_kabupaten / provinsi di baris judul." };
   }
   const get = (r: string[], i: number) => (i >= 0 ? (r[i] ?? "").trim() : "");
@@ -143,6 +160,7 @@ export function parseImport(raw: string): { rows: ImportedRow[]; error: string |
       kecamatan: get(r, idx.kecamatan),
       kota: get(r, idx.kota),
       provinsi: get(r, idx.provinsi),
+      negara: get(r, idx.negara),
       status: parseStatus(get(r, idx.status)),
       line: i + 2,
     }))
@@ -163,7 +181,14 @@ const stripPrefix = (s: string, prefixes: string[]) => {
 export function resolveSuggestion(s: Omit<ImportedRow, "id" | "line">, index: RegionIndex): Resolution {
   const notes: string[] = [];
   if (s.status === "unsure") return { target: null, problem: "LLM tidak yakin", notes };
-  if (s.status === "foreign") return { target: { kind: "foreign", code: null }, problem: null, notes };
+  // Abroad: by status, or by naming a country other than Indonesia.
+  const negara = s.negara ?? "";
+  const country = negara ? countryFromName(negara) : null;
+  const indonesia = /^(indonesia|ri|republik indonesia)$/.test(normalize(negara));
+  if (s.status === "foreign" || country || (negara && !indonesia && !s.provinsi && !s.kota && !s.kecamatan)) {
+    if (negara && !country && !indonesia) notes.push(`negara "${negara}" tidak dikenali — disimpan sebagai luar negeri saja`);
+    return { target: { kind: "foreign", code: country }, problem: null, notes };
+  }
 
   const provinceOf = (regencyCode: string) => index.regencies.get(regencyCode)!.provinceCode;
 
@@ -236,7 +261,7 @@ export type QueueEntry = { hash: string; text: string; auto: AddressMatch };
 export function buildPreview(rows: ImportedRow[], queue: QueueEntry[], index: RegionIndex): PreviewRow[] {
   const seen = new Set<string>();
   return rows.map((r) => {
-    const suggestion = [r.kecamatan, r.kota, r.provinsi].filter(Boolean).join(" · ") + (r.status === "ok" ? "" : ` (${r.status === "unsure" ? "tidak yakin" : "luar negeri"})`);
+    const suggestion = [r.kecamatan, r.kota, r.provinsi, r.negara].filter(Boolean).join(" · ") + (r.status === "ok" ? "" : ` (${r.status === "unsure" ? "tidak yakin" : "luar negeri"})`);
     const base = { line: r.line, id: r.id, suggestion: suggestion || "–", hash: null, address: null, target: null, label: null };
     const item = r.id.length >= 8 ? queue.find((q) => q.hash.startsWith(r.id)) : undefined;
     if (!item) return { ...base, status: "not_found", message: "id tidak ada di antrean (mungkin sudah dipetakan, atau alamatnya berubah)" };

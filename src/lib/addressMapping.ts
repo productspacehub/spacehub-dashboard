@@ -3,6 +3,7 @@ import { matchAddress, type AddressLevel, type AddressMatch } from "./addressMat
 import { ensureSchema, query } from "./db";
 import { normalize } from "./normalize";
 import { loadRegionIndex, regencyLabel, shortProvince, shortRegency, type RegionIndex } from "./regions";
+import { countryName, isCountry, searchCountries } from "./countries";
 import { fetchCustomerAddresses } from "./customerAddresses";
 
 export type TargetKind = "district" | "regency" | "province" | "foreign" | "unmappable";
@@ -49,7 +50,8 @@ export function validateTarget(target: MappingTarget, index: RegionIndex, allowU
     case "province":
       return target.code && index.provinces.has(target.code) ? null : "Provinsi tidak dikenal";
     case "foreign":
-      return target.code === null ? null : "Kode tidak dipakai untuk luar negeri";
+      // code = ISO country, or null when only "abroad" is known.
+      return target.code === null || isCountry(target.code) ? null : "Negara tidak dikenal";
     case "unmappable":
       return allowUnmappable && target.code === null ? null : "Tidak bisa dipakai untuk aturan";
     default:
@@ -88,6 +90,7 @@ function asMatch(target: MappingTarget, base: AddressMatch, index: RegionIndex):
     provinceCode: provinceOfTarget(target, index),
     regencyCodes: regency ? [regency] : [],
     districtCode: target.kind === "district" ? target.code : null,
+    countryCode: target.kind === "foreign" ? (target.code ?? base.countryCode) : null,
     provinceConflict: false,
     leftoverWords: [],
   };
@@ -99,9 +102,12 @@ function asMatch(target: MappingTarget, base: AddressMatch, index: RegionIndex):
 // in Jakarta Selatan adds detail; → anywhere in Bandung contradicts.)
 export function compareToAuto(target: MappingTarget, auto: AddressMatch, index: RegionIndex): { addsDetail: boolean; contradicts: boolean } {
   // "Luar negeri"/"tidak bisa dipetakan" sit at the same detail as "tidak
-  // dikenali": they only add anything where nothing Indonesian was found.
+  // dikenali": they only add anything where nothing Indonesian was found —
+  // or, for a named country, where the country wasn't known yet.
   if (target.kind === "foreign" || target.kind === "unmappable") {
-    return { addsDetail: auto.level === "unrecognized", contradicts: auto.provinceCode !== null };
+    const countryAdded = target.kind === "foreign" && target.code !== null && auto.level === "foreign" && auto.countryCode === null;
+    const otherCountry = target.kind === "foreign" && target.code !== null && auto.countryCode !== null && target.code !== auto.countryCode;
+    return { addsDetail: auto.level === "unrecognized" || countryAdded, contradicts: auto.provinceCode !== null || otherCountry };
   }
   const ambiguous = auto.level === "regency" && auto.regencyCodes.length > 1;
   const addsDetail = TARGET_DETAIL[target.kind] > DETAIL[auto.level] || (ambiguous && TARGET_DETAIL[target.kind] >= DETAIL.regency);
@@ -259,13 +265,13 @@ export function targetLabel(target: MappingTarget, index: RegionIndex): string {
     case "province":
       return shortProvince(index.provinces.get(target.code!)!.name);
     case "foreign":
-      return "Luar negeri";
+      return target.code ? `Luar negeri — ${countryName(target.code)}` : "Luar negeri (negara tidak diketahui)";
     case "unmappable":
       return "Tidak bisa dipetakan";
   }
 }
 
-export type RegionOption = { kind: "district" | "regency" | "province"; code: string; label: string; sublabel: string };
+export type RegionOption = { kind: "district" | "regency" | "province" | "foreign"; code: string; label: string; sublabel: string };
 
 export function searchRegions(q: string, index: RegionIndex, limit = 20): RegionOption[] {
   const nq = normalize(q);
@@ -311,6 +317,9 @@ export function searchRegions(q: string, index: RegionIndex, limit = 20): Region
       });
     }
   }
+  for (const c of searchCountries(nq)) {
+    found.push({ kind: "foreign", code: c.code, label: c.name, sublabel: "Luar negeri", score: c.score, order: 1.5 });
+  }
   return found
     .sort((a, b) => a.score - b.score || a.order - b.order || a.label.localeCompare(b.label))
     .slice(0, limit)
@@ -354,7 +363,7 @@ function autoLabel(m: AddressMatch, index: RegionIndex): string {
     case "province":
       return `Hanya provinsi: ${shortProvince(index.provinces.get(m.provinceCode!)!.name)}`;
     case "foreign":
-      return "Kemungkinan luar negeri";
+      return m.countryCode ? `Kemungkinan luar negeri: ${countryName(m.countryCode)}` : "Kemungkinan luar negeri";
     default:
       return "Tidak dikenali";
   }

@@ -282,11 +282,13 @@ Open [http://localhost:3000](http://localhost:3000) — you'll be redirected to
     page (and the mapping queue) fall back to active tenants and say why.
   - A segment selector switches every section below it; a table above shows
     people, address fill rate and "down to kota/kab." per segment.
-  - **Pernah sewa vs. belum, per kota/kabupaten**: per regency, active /
-    moved out / never rented, and the share who ever rented (reservations
-    left out as undecided). Only regencies with 10+ such people are listed;
-    the total row includes the rest. Only fair if never-renters fill in
-    their address as often as renters do — compare fill rates first.
+  - **Luar negeri** by country (ISO 3166-1 alpha-2, `src/lib/countries.ts`):
+    detected from country names and a few big Asian/Australian cities when
+    no Indonesian region is found, skipping street names ("Jl. Singapore").
+    European/American city names are deliberately not used — Indonesian
+    housing clusters are often named after them. Detected countries still
+    sit in the mapping queue to be confirmed. Countries with fewer than 3
+    people are folded into a count.
   - Each address is matched against official Kemendagri province /
     regency / district names from the `idn-area-data` package (data © its
     contributors under the Open Database License; read from the package at
@@ -340,7 +342,7 @@ Open [http://localhost:3000](http://localhost:3000) — you'll be redirected to
     address. Identical addresses are one queue item, mapped once. A tenant
     editing their address stops matching, so it returns to the queue; stale
     overrides are just counted. Targets: a kecamatan, kota/kabupaten,
-    province, "luar negeri", or "tidak bisa dipetakan" (taken out of the
+    province, "luar negeri" (a country, or unknown), or "tidak bisa dipetakan" (taken out of the
     queue, still counted as unrecognized).
   - **Rules** (`address_rules`) map a phrase (whole words, normalized) to a
     region and apply to every address containing it, new tenants included.
@@ -361,7 +363,7 @@ Open [http://localhost:3000](http://localhost:3000) — you'll be redirected to
       are removed; 5-digit postal codes and "Sektor 9"-style area numbers
       are kept. No tenant names or contacts.
     - The answer (CSV with comma/semicolon/tab, a ``` block, or a markdown
-      table; columns `id,kecamatan,kota_kabupaten,provinsi,status`) is
+      table; columns `id,kecamatan,kota_kabupaten,provinsi,negara,status`) is
       matched back by id and turned from region *names* into official codes
       (`/api/address-mapping/import-preview`, saves nothing). Names that
       don't agree with each other, or "tidak yakin", are skipped rather

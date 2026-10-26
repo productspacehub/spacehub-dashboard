@@ -1,3 +1,4 @@
+import { detectCountry } from "./countries";
 import { normalize } from "./normalize";
 import type { RegionIndex } from "./regions";
 
@@ -10,6 +11,8 @@ export type AddressMatch = {
   // (Kota/Kab. Bogor) was written.
   regencyCodes: string[];
   districtCode: string | null;
+  // ISO 3166-1 alpha-2 code, only for level "foreign".
+  countryCode: string | null;
   // The written province disagrees with the city/district found.
   provinceConflict: boolean;
   hasPostalCode: boolean;
@@ -26,12 +29,6 @@ const VILLAGE_WORDS = new Set(["kel", "kelurahan", "desa", "ds", "dusun"]);
 const NAME_STOP = new Set(["no", "nomor", "nmr", "rt", "rw", "blok", "blk", "kav", "kavling", "km", "kel", "kelurahan", "kec", "kecamatan", "kota", "kab", "kabupaten"]);
 const MAX_NAME_WORDS = 5;
 const DISTRICT_PREFIX = new Set(["kec", "kecamatan"]);
-
-const COUNTRIES = [
-  "singapore", "malaysia", "australia", "united states", "usa", "united kingdom", "uk", "england", "japan", "korea",
-  "china", "hong kong", "taiwan", "thailand", "philippines", "vietnam", "india", "netherlands", "nederland",
-  "germany", "deutschland", "france", "canada", "new zealand", "switzerland", "belgium", "italy", "spain",
-];
 
 type Token = { word: string; segment: number; skip: boolean };
 type Hit = { kind: "province" | "regency" | "district"; codes: string[]; pos: number; words: number; prefixed: boolean };
@@ -104,7 +101,7 @@ function analyze(text: string, tokens: Token[], index: RegionIndex): AddressMatc
     wordCount: tokens.length,
   };
   if (tokens.length === 0) {
-    return { ...base, level: "empty", provinceCode: null, regencyCodes: [], districtCode: null, leftoverWords: [] };
+    return { ...base, level: "empty", provinceCode: null, regencyCodes: [], districtCode: null, countryCode: null, leftoverWords: [] };
   }
 
   const hits = findHits(tokens, index);
@@ -162,13 +159,15 @@ function analyze(text: string, tokens: Token[], index: RegionIndex): AddressMatc
   const leftoverWords = Array.from(new Set(tokens.filter((t, i) => !recognized[i] && !t.skip).map((t) => t.word)));
 
   let level: AddressLevel;
+  let countryCode: string | null = null;
   if (districtCode) level = "district";
   else if (regencyCodes.length > 0) level = "regency";
   else if (provinceCode) level = "province";
   else {
-    const normalized = ` ${normalize(text)} `;
-    level = COUNTRIES.some((c) => normalized.includes(` ${c} `)) ? "foreign" : "unrecognized";
+    // Street names are skipped here too: "Jl. Singapore" isn't abroad.
+    countryCode = detectCountry(tokens.filter((t) => !t.skip).map((t) => t.word));
+    level = countryCode ? "foreign" : "unrecognized";
   }
 
-  return { ...base, level, provinceCode, regencyCodes, districtCode, provinceConflict, leftoverWords };
+  return { ...base, level, provinceCode, regencyCodes, districtCode, countryCode, provinceConflict, leftoverWords };
 }
