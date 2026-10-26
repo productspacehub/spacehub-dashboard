@@ -31,7 +31,17 @@ const MAX_NAME_WORDS = 5;
 const DISTRICT_PREFIX = new Set(["kec", "kecamatan"]);
 
 type Token = { word: string; segment: number; skip: boolean };
-type Hit = { kind: "province" | "regency" | "district"; codes: string[]; pos: number; words: number; prefixed: boolean };
+type Hit = {
+  kind: "province" | "regency" | "district";
+  codes: string[];
+  pos: number;
+  words: number;
+  prefixed: boolean;
+  // For an area alias ("Kuningan" → South Jakarta): the official regency the
+  // bare name also names, used instead when its province is written.
+  official?: string[];
+};
+const REGENCY_WORDS = new Set(["kota", "kab", "kabupaten"]);
 
 function tokenize(text: string, skipNames: boolean): Token[] {
   const tokens: Token[] = [];
@@ -67,7 +77,13 @@ function findHits(tokens: Token[], index: RegionIndex): Hit[] {
       if (prefixed && district) hit = { kind: "district", codes: district, pos: i, words: n, prefixed };
       else if (explicit) hit = { kind: "regency", codes: [explicit], pos: i, words: n, prefixed };
       else if (province) hit = { kind: "province", codes: [province], pos: i, words: n, prefixed };
-      else if (bare) hit = { kind: "regency", codes: bare, pos: i, words: n, prefixed };
+      else if (bare) {
+        const area = index.areaAliases.get(phrase);
+        const afterRegencyWord = i > 0 && REGENCY_WORDS.has(tokens[i - 1].word);
+        hit = area && !afterRegencyWord
+          ? { kind: "regency", codes: [area], pos: i, words: n, prefixed, official: bare }
+          : { kind: "regency", codes: bare, pos: i, words: n, prefixed };
+      }
       else if (district) hit = { kind: "district", codes: district, pos: i, words: n, prefixed };
       if (hit) {
         hits.push(hit);
@@ -104,11 +120,13 @@ function analyze(text: string, tokens: Token[], index: RegionIndex): AddressMatc
     return { ...base, level: "empty", provinceCode: null, regencyCodes: [], districtCode: null, countryCode: null, leftoverWords: [] };
   }
 
-  const hits = findHits(tokens, index);
-  const latestFirst = [...hits].sort((a, b) => b.pos - a.pos);
   const provinceOf = (regencyCode: string) => index.regencies.get(regencyCode)!.provinceCode;
-
-  const writtenProvince = latestFirst.find((h) => h.kind === "province")?.codes[0] ?? null;
+  const found = findHits(tokens, index);
+  const writtenProvince = [...found].sort((a, b) => b.pos - a.pos).find((h) => h.kind === "province")?.codes[0] ?? null;
+  const hits = found.map((h) =>
+    h.official && writtenProvince && h.official.some((c) => provinceOf(c) === writtenProvince) ? { ...h, codes: h.official } : h
+  );
+  const latestFirst = [...hits].sort((a, b) => b.pos - a.pos);
 
   // Addresses usually run small → large, so the last-mentioned city is the
   // real one; prefer cities inside the written province when there is one.

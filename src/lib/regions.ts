@@ -17,6 +17,7 @@ export type RegionIndex = {
   provinceKeys: Map<string, string>;
   regencyExplicitKeys: Map<string, string>; // "kota bandung", "kab bogor", "jaksel"
   regencyBareKeys: Map<string, string[]>; // "bandung" -> [Kota Bandung, Kab. Bandung]
+  areaAliases: Map<string, string>; // "kuningan" -> Kota Jakarta Selatan (see AREA_ALIASES)
   districtKeys: Map<string, string[]>;
   maxPhraseWords: number;
 };
@@ -58,6 +59,15 @@ const REGENCY_ALIASES: Record<string, string> = {
   jaktim: "Kota Administrasi Jakarta Timur",
   tangsel: "Kota Tangerang Selatan",
   solo: "Kota Surakarta",
+};
+
+// Popular area names that are also the bare name of an official regency
+// elsewhere. Written bare they mean the area — "Kuningan" in an address is
+// the South Jakarta business district far more often than Kabupaten Kuningan
+// in Jawa Barat — unless "Kota"/"Kab." is written in front or the official
+// regency's province is named ("Kuningan, Jawa Barat").
+const AREA_ALIASES: Record<string, string> = {
+  kuningan: "Kota Administrasi Jakarta Selatan",
 };
 
 const REGENCY_PREFIX = /^(kabupaten administrasi|kota administrasi|kabupaten|kota)\s+/;
@@ -137,6 +147,12 @@ async function buildIndex(): Promise<RegionIndex> {
     if (!code) throw new Error(`Regency alias "${alias}" points at unknown regency "${name}"`);
     regencyExplicitKeys.set(alias, code);
   }
+  const areaAliases = new Map<string, string>();
+  for (const [alias, name] of Object.entries(AREA_ALIASES)) {
+    const code = byName.get(name);
+    if (!code || !regencyBareKeys.has(alias)) throw new Error(`Area alias "${alias}" → "${name}" doesn't match the region data`);
+    areaAliases.set(alias, code);
+  }
 
   const districtKeys = new Map<string, string[]>();
   for (const d of districts.values()) {
@@ -150,5 +166,15 @@ async function buildIndex(): Promise<RegionIndex> {
     )
   );
 
-  return { provinces, regencies, districts, provinceKeys, regencyExplicitKeys, regencyBareKeys, districtKeys, maxPhraseWords };
+  return {
+    provinces,
+    regencies,
+    districts,
+    provinceKeys,
+    regencyExplicitKeys,
+    regencyBareKeys,
+    areaAliases,
+    districtKeys,
+    maxPhraseWords,
+  };
 }

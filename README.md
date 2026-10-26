@@ -319,9 +319,11 @@ Open [http://localhost:3000](http://localhost:3000) — you'll be redirected to
     appearing in at least 5 unrecognized or province-only addresses —
     candidates for new area aliases, to be confirmed by someone who knows
     the areas rather than guessed.
-  - Known limitation: popular area names that coincide with an official
-    region elsewhere are misread (a lone "Kuningan" reads as Kabupaten
-    Kuningan, not the Jakarta business district).
+  - Popular area names that coincide with an official regency elsewhere are
+    handled case by case (`AREA_ALIASES` in `regions.ts`): a bare "Kuningan"
+    reads as the South Jakarta district, unless "Kota"/"Kab." is written in
+    front or Jawa Barat is named. Others like it are still misread until
+    added there.
   - The profile applies the manual mappings below on top of automatic
     matching and says how many addresses each accounts for; if they can't be
     loaded it falls back to automatic only and says so.

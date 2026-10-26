@@ -500,10 +500,12 @@ export default function AddressProfilePage() {
                 Kecamatan hanya diterima kalau berada di kota yang disebut, unik di provinsi yang disebut, atau — tanpa
                 keterangan kota/provinsi — ditulis setelah &quot;Kec.&quot; atau terdiri dari lebih dari satu kata. Jadi
                 &quot;Kemang&quot; saja tidak dianggap Kec. Kemang di Kabupaten Bogor. &quot;Yogyakarta&quot; saja dibaca
-                sebagai provinsi; &quot;Kota Yogyakarta&quot; sebagai kota.
+                sebagai provinsi; &quot;Kota Yogyakarta&quot; sebagai kota. &quot;Kuningan&quot; saja dibaca sebagai kawasan
+                Kuningan di Jakarta Selatan, kecuali ditulis &quot;Kab./Kota Kuningan&quot; atau disertai &quot;Jawa
+                Barat&quot;.
                 <br />
                 Ini pencocokan otomatis — sebagian kecil hasil bisa keliru, terutama nama area populer yang kebetulan sama
-                dengan nama wilayah resmi di tempat lain (mis. &quot;Kuningan&quot; saja terbaca Kabupaten Kuningan).
+                dengan nama wilayah resmi di tempat lain.
                 Data wilayah: idn-area-data (Open Database License).
               </p>
             </section>
