@@ -146,14 +146,13 @@ export default function OccupancyDetailPage() {
           </div>
         </header>
 
-        <div className="mb-6 flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
-          <Link href="/" className="text-sm hover:underline" style={{ color: "var(--series-1)" }}>
-            ← Back to summary
-          </Link>
-          <Link href="/id-check" className="text-sm hover:underline" style={{ color: "var(--series-1)" }}>
-            Kelengkapan KTP/paspor tenant →
-          </Link>
-        </div>
+        <Link
+          href="/"
+          className="mb-6 inline-block text-sm hover:underline"
+          style={{ color: "var(--series-1)" }}
+        >
+          ← Back to summary
+        </Link>
 
         {error && (
           <div

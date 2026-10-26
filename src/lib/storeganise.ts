@@ -228,31 +228,10 @@ export type StoreganiseUser = {
   name?: string;
   email?: string;
   phone?: string;
-  customFields?: Record<string, unknown>;
 };
 
-const MAX_FILE_BYTES = 15 * 1024 * 1024;
-
-// Downloads a file referenced by an absolute URL (e.g. a File custom field).
-// The API key is only attached when the URL points at the Storeganise
-// instance itself — never sent to a third-party host such as a storage
-// bucket's signed URL.
-export async function fetchStoreganiseFile(url: string): Promise<{ bytes: Buffer; contentType: string | null }> {
-  const target = new URL(url);
-  if (target.protocol !== "https:" && target.protocol !== "http:") throw new Error(`Unsupported file URL protocol ${target.protocol}`);
-  const sameOrigin = target.origin === new URL(BASE_URL).origin;
-  const res = await fetch(target, { headers: sameOrigin ? authHeaders() : {}, cache: "no-store" });
-  if (!res.ok) throw new Error(`File download failed with status ${res.status}`);
-  const length = Number(res.headers.get("content-length") ?? 0);
-  if (length > MAX_FILE_BYTES) throw new Error(`File too large (${length} bytes)`);
-  const bytes = Buffer.from(await res.arrayBuffer());
-  if (bytes.length > MAX_FILE_BYTES) throw new Error(`File too large (${bytes.length} bytes)`);
-  return { bytes, contentType: res.headers.get("content-type") };
-}
-
-export async function fetchUserById(userId: string, params?: Record<string, string>): Promise<StoreganiseUser> {
+export async function fetchUserById(userId: string): Promise<StoreganiseUser> {
   const url = new URL(`${BASE_URL}/v1/admin/users/${userId}`);
-  for (const [k, v] of Object.entries(params ?? {})) url.searchParams.set(k, v);
 
   const res = await fetch(url, { headers: authHeaders(), cache: "no-store" });
   if (!res.ok) {
