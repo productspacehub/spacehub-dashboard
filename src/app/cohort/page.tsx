@@ -4,7 +4,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react
 import Image from "next/image";
 import Link from "next/link";
 import { signOut, useSession } from "next-auth/react";
-import type { CohortMode, CohortReport, CohortTable, CurvePoint } from "@/lib/cohort";
+import type { CohortMode, CohortReport, CohortTable, CurvePoint, FlaggedRentalRow, IssueKind } from "@/lib/cohort";
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "Mei", "Jun", "Jul", "Agu", "Sep", "Okt", "Nov", "Des"];
 const monthLabel = (month: string) => `${MONTHS[Number(month.slice(5, 7)) - 1]} ${month.slice(0, 4)}`;
@@ -239,6 +239,99 @@ function CohortGrid({ table, currentMonth, unitWord }: { table: CohortTable; cur
   );
 }
 
+const ISSUE_LABELS: Record<IssueKind, string> = {
+  occupiedPastEnd: "Occupied, tanggal selesai sudah lewat",
+  endedFutureEnd: "Ended, tanggal selesai masih di depan",
+  occupiedFutureStart: "Occupied, tanggal mulai masih di depan",
+  withoutStartDate: "Tanpa tanggal mulai",
+  endedWithoutEndDate: "Ended tanpa tanggal selesai",
+};
+const ISSUE_ORDER = Object.keys(ISSUE_LABELS) as IssueKind[];
+
+function daysNote(r: FlaggedRentalRow): string {
+  if (r.days === null) return "";
+  if (r.kind === "occupiedPastEnd") return `lewat ${r.days} hari`;
+  if (r.kind === "endedFutureEnd") return `${r.days} hari lagi`;
+  return `mulai ${r.days} hari lagi`;
+}
+
+// The rentals whose status and dates disagree or can't be placed, to look up
+// in Storeganise by rental id or unit. No customer names.
+function FlaggedRentals({ rows, totals, siteName }: { rows: FlaggedRentalRow[]; totals: Record<IssueKind, number>; siteName: string | null }) {
+  // Per site, counted from the listed rows; all sites, the full totals (the
+  // list itself is capped).
+  const siteRows = siteName ? rows.filter((r) => r.siteName === siteName) : rows;
+  const counts = siteName
+    ? Object.fromEntries(ISSUE_ORDER.map((k) => [k, siteRows.filter((r) => r.kind === k).length]))
+    : totals;
+  const kinds = ISSUE_ORDER.filter((k) => counts[k] > 0);
+  const [picked, setPicked] = useState<IssueKind | null>(null);
+  const kind = picked && kinds.includes(picked) ? picked : (kinds[0] ?? null);
+  if (!kind) {
+    return (
+      <p className="text-sm" style={{ color: "var(--text-muted)" }}>
+        Tidak ada rental yang perlu dicek{siteName ? " di site ini" : ""}.
+      </p>
+    );
+  }
+  const shown = siteRows.filter((r) => r.kind === kind);
+  return (
+    <>
+      <div className="mb-3 flex flex-wrap gap-2">
+        {kinds.map((k) => (
+          <button
+            key={k}
+            onClick={() => setPicked(k)}
+            className="rounded-full px-3 py-1.5 text-xs font-medium"
+            style={{
+              background: k === kind ? "var(--series-1)" : "transparent",
+              color: k === kind ? "var(--background)" : "var(--text-secondary)",
+              border: k === kind ? "none" : "1px solid var(--gridline)",
+            }}
+          >
+            {ISSUE_LABELS[k]} ({counts[k]})
+          </button>
+        ))}
+      </div>
+      <div className="max-h-96 overflow-auto rounded-lg border" style={{ borderColor: "var(--gridline)" }}>
+        <table className="w-full text-left text-xs tabular-nums">
+          <thead className="sticky top-0" style={{ background: "var(--surface-1)" }}>
+            <tr className="text-[11px] tracking-wide uppercase" style={{ color: "var(--text-muted)" }}>
+              <th className="px-3 py-2 font-bold">Site</th>
+              <th className="px-3 py-2 font-bold">Unit</th>
+              <th className="px-3 py-2 font-bold">ID rental</th>
+              <th className="px-3 py-2 font-bold whitespace-nowrap">Mulai</th>
+              <th className="px-3 py-2 font-bold whitespace-nowrap">Selesai</th>
+              <th className="px-3 py-2 font-bold" />
+            </tr>
+          </thead>
+          <tbody>
+            {shown.map((r) => (
+              <tr key={`${r.kind}-${r.rentalId}`} style={{ borderTop: "1px solid var(--gridline)", color: "var(--text-primary)" }}>
+                <td className="px-3 py-2 whitespace-nowrap">{r.siteName}</td>
+                <td className="px-3 py-2 whitespace-nowrap">{r.unitName}</td>
+                <td className="px-3 py-2 font-mono text-[11px]" style={{ color: "var(--text-secondary)" }}>
+                  {r.rentalId}
+                </td>
+                <td className="px-3 py-2 whitespace-nowrap">{r.startDate ?? "–"}</td>
+                <td className="px-3 py-2 whitespace-nowrap">{r.endDate ?? "–"}</td>
+                <td className="px-3 py-2 whitespace-nowrap" style={{ color: "var(--text-muted)" }}>
+                  {daysNote(r)}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {shown.length < counts[kind] && (
+        <p className="mt-2 text-xs" style={{ color: "var(--text-muted)" }}>
+          Hanya {shown.length} dari {counts[kind]} yang ditampilkan.
+        </p>
+      )}
+    </>
+  );
+}
+
 export default function CohortPage() {
   const { data: session } = useSession();
   const [data, setData] = useState<CohortReport | null>(null);
@@ -424,13 +517,13 @@ export default function CohortPage() {
                     <p className="mt-1 text-xs" style={{ color: "var(--status-warning)" }}>
                       Selisih {nowGap}. Rental occupied yang tidak bisa dihitung menyewa hari ini (semua site, per rental):{" "}
                       {data.issues.occupiedWithoutStartDate} tanpa tanggal mulai · {data.issues.occupiedFutureStart} dengan tanggal mulai
-                      setelah hari ini.
+                      setelah hari ini. Rinciannya di bawah.
                     </p>
                   )}
-                  {data.issues.occupiedPastEnd > 0 && (
+                  {data.issues.occupiedPastEnd + data.issues.endedFutureEnd > 0 && (
                     <p className="mt-1 text-xs" style={{ color: "var(--text-muted)" }}>
-                      {data.issues.occupiedPastEnd} rental occupied punya tanggal selesai yang sudah lewat — tetap dihitung masih menyewa,
-                      mengikuti status di Storeganise.
+                      Status dan tanggal tidak cocok di {data.issues.occupiedPastEnd + data.issues.endedFutureEnd} rental — status di
+                      Storeganise yang dipakai. Rinciannya di bawah.
                     </p>
                   )}
                 </div>
@@ -461,6 +554,25 @@ export default function CohortPage() {
                   </p>
                 </div>
               </div>
+
+              <p className="mt-6 mb-1 text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
+                Rental yang perlu dicek di Storeganise
+              </p>
+              <p className="mb-3 text-xs leading-relaxed" style={{ color: "var(--text-muted)" }}>
+                Rental yang status dan tanggalnya tidak cocok, atau tanggalnya kosong. Cari di Storeganise lewat ID rental atau unit.
+                {siteKey !== "all" ? " Hanya site yang dipilih." : ""}
+              </p>
+              <FlaggedRentals
+                rows={data.flagged}
+                totals={{
+                  occupiedPastEnd: data.issues.occupiedPastEnd,
+                  endedFutureEnd: data.issues.endedFutureEnd,
+                  occupiedFutureStart: data.issues.occupiedFutureStart,
+                  withoutStartDate: data.issues.withoutStartDate,
+                  endedWithoutEndDate: data.issues.endedWithoutEndDate,
+                }}
+                siteName={siteKey === "all" ? null : (data.sites.find((x) => x.id === siteKey)?.name ?? null)}
+              />
             </Section>
 
             <section className="rounded-2xl border p-6" style={card}>
@@ -479,7 +591,8 @@ export default function CohortPage() {
                 </li>
                 <li>
                   Sumber: unit rental Storeganise berstatus <i>occupied</i> dan <i>ended</i>, memakai tanggal mulai dan tanggal selesai
-                  sewa. Rental yang batal sebelum move-in tidak dihitung. Dengan filter site, hanya sewa di site itu yang dilihat.
+                  sewa. Kalau status dan tanggal tidak cocok, status yang dipakai: rental occupied dihitung masih menyewa sampai hari ini,
+                  rental ended dihitung sudah selesai paling lambat hari ini. Rental yang batal sebelum move-in tidak dihitung. Dengan filter site, hanya sewa di site itu yang dilihat.
                 </li>
                 <li>Cohort bulan berjalan baru berisi yang move-in sampai hari ini. Hanya angka gabungan, tanpa nama pelanggan.</li>
               </ul>

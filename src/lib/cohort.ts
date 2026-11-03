@@ -11,7 +11,15 @@ export const COHORT_COUNT = MAX_OFFSET + 1;
 // again). "unit": every rental is followed on its own.
 export type CohortMode = "customer" | "unit";
 
-export type CohortRental = { id: string; ownerId: string; siteId: string; state: string; startDate?: string; endDate?: string };
+export type CohortRental = {
+  id: string;
+  ownerId: string;
+  siteId: string;
+  unitId?: string;
+  state: string;
+  startDate?: string;
+  endDate?: string;
+};
 
 // A rental reduced to what the cohort needs. Dates are Jakarta calendar days
 // ("YYYY-MM-DD"); end null = still renting.
@@ -46,6 +54,20 @@ export type CohortReport = {
   // to compare with what the rental dates say.
   occupiedNow: Record<string, { units: number; customers: number }>;
   issues: StayIssues;
+  // The rentals behind `issues`, to look up in Storeganise. No customer
+  // names — rental id and unit are enough to find them there.
+  flagged: FlaggedRentalRow[];
+};
+
+export type FlaggedRentalRow = {
+  kind: IssueKind;
+  rentalId: string;
+  siteName: string;
+  unitName: string;
+  startDate: string | null;
+  endDate: string | null;
+  // Days the end date has passed / is still ahead / the start is ahead.
+  days: number | null;
 };
 
 const monthOf = (date: string) => date.slice(0, 7);
@@ -122,6 +144,8 @@ export function buildCohortTable(stays: Stay[], mode: CohortMode, today: string)
   return { rows, curve, activeNow, before };
 }
 
+export type IssueKind = "occupiedPastEnd" | "endedFutureEnd" | "occupiedFutureStart" | "withoutStartDate" | "endedWithoutEndDate";
+
 export type StayIssues = {
   // Left out: can't be placed in time.
   endedWithoutEndDate: number;
@@ -129,47 +153,91 @@ export type StayIssues = {
   occupiedWithoutStartDate: number; // of withoutStartDate
   // Occupied but starting after today: no cohort yet, not counted as renting.
   occupiedFutureStart: number;
-  // Occupied although their end date has passed: still counted as renting
-  // (Storeganise's status wins), listed so the gap with "occupied" can be read.
+  // Status and end date disagree; the status wins. Occupied although the end
+  // date has passed: still renting. Ended although the end date is ahead:
+  // gone as of today.
   occupiedPastEnd: number;
+  endedFutureEnd: number;
 };
 
-// Only rentals that actually moved in: occupied now, or ended. For an
-// occupied rental the status is the truth about now — any end date on it
-// (planned or already past) is ignored, so it counts up to today. A rental
-// without a start date can't be placed; an ended one without an end date
-// can't say when it ended — both are left out and counted.
-export function toStays(rentals: CohortRental[], today: string): { stays: Stay[]; issues: StayIssues } {
+export type FlaggedRental = { kind: IssueKind; rental: CohortRental };
+
+// Only rentals that actually moved in: occupied now, or ended. Where status
+// and dates disagree, Storeganise's status is the truth about now: an
+// occupied rental counts up to today whatever its end date says, an ended
+// one is gone by today at the latest. A rental without a start date can't be
+// placed; an ended one without an end date can't say when it ended — both
+// are left out. Every such rental is returned in `flagged`.
+export function toStays(rentals: CohortRental[], today: string): { stays: Stay[]; issues: StayIssues; flagged: FlaggedRental[] } {
   const stays: Stay[] = [];
+  const flagged: FlaggedRental[] = [];
   const issues: StayIssues = {
     endedWithoutEndDate: 0,
     withoutStartDate: 0,
     occupiedWithoutStartDate: 0,
     occupiedFutureStart: 0,
     occupiedPastEnd: 0,
+    endedFutureEnd: 0,
+  };
+  const flag = (kind: IssueKind, rental: CohortRental) => {
+    flagged.push({ kind, rental });
+    if (kind !== "withoutStartDate") issues[kind] += 1;
   };
   for (const r of rentals) {
     if (!r.startDate) {
       issues.withoutStartDate += 1;
       if (r.state !== "ended") issues.occupiedWithoutStartDate += 1;
+      flagged.push({ kind: "withoutStartDate", rental: r });
       continue;
     }
     const start = r.startDate.slice(0, 10);
     const end = r.endDate ? r.endDate.slice(0, 10) : null;
     if (r.state === "ended") {
       if (!end) {
-        issues.endedWithoutEndDate += 1;
+        flag("endedWithoutEndDate", r);
         continue;
       }
-      stays.push({ ownerId: r.ownerId, siteId: r.siteId, start, end });
+      if (end > today) flag("endedFutureEnd", r);
+      stays.push({ ownerId: r.ownerId, siteId: r.siteId, start, end: end > today ? today : end });
       continue;
     }
-    if (start > today) issues.occupiedFutureStart += 1;
-    if (end && end <= today) issues.occupiedPastEnd += 1;
+    if (start > today) flag("occupiedFutureStart", r);
+    if (end && end <= today) flag("occupiedPastEnd", r);
     stays.push({ ownerId: r.ownerId, siteId: r.siteId, start, end: null });
   }
-  return { stays, issues };
+  return { stays, issues, flagged };
 }
+
+function daysBetween(from: string, to: string): number {
+  const d = (s: string) => Date.UTC(Number(s.slice(0, 4)), Number(s.slice(5, 7)) - 1, Number(s.slice(8, 10)));
+  return Math.round((d(to) - d(from)) / 86_400_000);
+}
+
+function toFlaggedRow(
+  { kind, rental: r }: FlaggedRental,
+  today: string,
+  siteNames: Map<string, string>,
+  unitNames: Map<string, string>
+): FlaggedRentalRow {
+  const start = r.startDate?.slice(0, 10) ?? null;
+  const end = r.endDate?.slice(0, 10) ?? null;
+  let days: number | null = null;
+  if (kind === "occupiedPastEnd" && end) days = daysBetween(end, today);
+  else if (kind === "endedFutureEnd" && end) days = daysBetween(today, end);
+  else if (kind === "occupiedFutureStart" && start) days = daysBetween(today, start);
+  return {
+    kind,
+    rentalId: r.id,
+    siteName: siteNames.get(r.siteId) ?? r.siteId,
+    unitName: (r.unitId && unitNames.get(r.unitId)) || r.unitId || "–",
+    startDate: start,
+    endDate: end,
+    days,
+  };
+}
+
+const FLAGGED_LIMIT = 500;
+const KIND_ORDER: IssueKind[] = ["occupiedPastEnd", "endedFutureEnd", "occupiedFutureStart", "withoutStartDate", "endedWithoutEndDate"];
 
 export async function getCohortReport(): Promise<CohortReport> {
   const [occupied, ended, units, sites] = await Promise.all([
@@ -179,10 +247,11 @@ export async function getCohortReport(): Promise<CohortReport> {
     fetchSites(),
   ]);
   const today = jakartaToday();
-  const { stays, issues } = toStays([...occupied, ...ended], today);
+  const { stays, issues, flagged } = toStays([...occupied, ...ended], today);
 
   const siteIds = Array.from(new Set(stays.map((s) => s.siteId)));
   const nameById = new Map(sites.map((s) => [s.id, pickTitle(s.title, s.code ?? s.id)]));
+  const unitNameById = new Map(units.map((u) => [u.id, u.name ?? ""]));
   const tables: CohortReport["tables"] = {};
   const occupiedNow: CohortReport["occupiedNow"] = {};
   for (const key of ["all", ...siteIds]) {
@@ -202,5 +271,9 @@ export async function getCohortReport(): Promise<CohortReport> {
     tables,
     occupiedNow,
     issues,
+    flagged: flagged
+      .map((f) => toFlaggedRow(f, today, nameById, unitNameById))
+      .sort((a, b) => KIND_ORDER.indexOf(a.kind) - KIND_ORDER.indexOf(b.kind) || (b.days ?? 0) - (a.days ?? 0))
+      .slice(0, FLAGGED_LIMIT),
   };
 }
