@@ -217,9 +217,12 @@ Open [http://localhost:3000](http://localhost:3000) — you'll be redirected to
   Cohort**: monthly retention cohorts for the current month and the 24 before
   it, each followed for up to 24 months.
   - Built from `unit-rentals?state=occupied` and `?state=ended` (start and end
-    dates, Jakarta calendar days) — rentals that actually moved in. Ended
-    rentals without an `endDate` and rentals without a `startDate` are left
-    out and counted on the page.
+    dates, Jakarta calendar days) — rentals that actually moved in. For an
+    occupied rental the status wins: any `endDate` on it (planned, or already
+    past) is ignored and it
+    counts as renting through today. Ended rentals without an `endDate` and
+    rentals without a `startDate` are left out; all of these are counted on
+    the page to explain any gap with what Storeganise marks occupied.
   - **Per pelanggan** (default): cohort = month of a customer's first move-in;
     they count as staying at the end of month +k while renting at least one
     unit (moving units isn't leaving; leaving and coming back counts as

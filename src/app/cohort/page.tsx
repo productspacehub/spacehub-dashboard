@@ -422,7 +422,15 @@ export default function CohortPage() {
                   </span>
                   {!nowOk && (
                     <p className="mt-1 text-xs" style={{ color: "var(--status-warning)" }}>
-                      Selisih {nowGap} — tanggal sewa di sebagian rental mungkin tidak cocok dengan statusnya.
+                      Selisih {nowGap}. Rental occupied yang tidak bisa dihitung menyewa hari ini (semua site, per rental):{" "}
+                      {data.issues.occupiedWithoutStartDate} tanpa tanggal mulai · {data.issues.occupiedFutureStart} dengan tanggal mulai
+                      setelah hari ini.
+                    </p>
+                  )}
+                  {data.issues.occupiedPastEnd > 0 && (
+                    <p className="mt-1 text-xs" style={{ color: "var(--text-muted)" }}>
+                      {data.issues.occupiedPastEnd} rental occupied punya tanggal selesai yang sudah lewat — tetap dihitung masih menyewa,
+                      mengikuti status di Storeganise.
                     </p>
                   )}
                 </div>

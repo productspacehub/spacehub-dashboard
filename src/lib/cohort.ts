@@ -45,7 +45,7 @@ export type CohortReport = {
   // For the data-quality panel: what Storeganise says is occupied right now,
   // to compare with what the rental dates say.
   occupiedNow: Record<string, { units: number; customers: number }>;
-  issues: { endedWithoutEndDate: number; withoutStartDate: number };
+  issues: StayIssues;
 };
 
 const monthOf = (date: string) => date.slice(0, 7);
@@ -122,31 +122,53 @@ export function buildCohortTable(stays: Stay[], mode: CohortMode, today: string)
   return { rows, curve, activeNow, before };
 }
 
-// Only rentals that actually moved in: occupied now, or ended. A rental
+export type StayIssues = {
+  // Left out: can't be placed in time.
+  endedWithoutEndDate: number;
+  withoutStartDate: number;
+  occupiedWithoutStartDate: number; // of withoutStartDate
+  // Occupied but starting after today: no cohort yet, not counted as renting.
+  occupiedFutureStart: number;
+  // Occupied although their end date has passed: still counted as renting
+  // (Storeganise's status wins), listed so the gap with "occupied" can be read.
+  occupiedPastEnd: number;
+};
+
+// Only rentals that actually moved in: occupied now, or ended. For an
+// occupied rental the status is the truth about now — any end date on it
+// (planned or already past) is ignored, so it counts up to today. A rental
 // without a start date can't be placed; an ended one without an end date
 // can't say when it ended — both are left out and counted.
-export function toStays(rentals: CohortRental[]): { stays: Stay[]; endedWithoutEndDate: number; withoutStartDate: number } {
+export function toStays(rentals: CohortRental[], today: string): { stays: Stay[]; issues: StayIssues } {
   const stays: Stay[] = [];
-  let endedWithoutEndDate = 0;
-  let withoutStartDate = 0;
+  const issues: StayIssues = {
+    endedWithoutEndDate: 0,
+    withoutStartDate: 0,
+    occupiedWithoutStartDate: 0,
+    occupiedFutureStart: 0,
+    occupiedPastEnd: 0,
+  };
   for (const r of rentals) {
     if (!r.startDate) {
-      withoutStartDate += 1;
+      issues.withoutStartDate += 1;
+      if (r.state !== "ended") issues.occupiedWithoutStartDate += 1;
       continue;
     }
-    if (r.state === "ended" && !r.endDate) {
-      endedWithoutEndDate += 1;
+    const start = r.startDate.slice(0, 10);
+    const end = r.endDate ? r.endDate.slice(0, 10) : null;
+    if (r.state === "ended") {
+      if (!end) {
+        issues.endedWithoutEndDate += 1;
+        continue;
+      }
+      stays.push({ ownerId: r.ownerId, siteId: r.siteId, start, end });
       continue;
     }
-    stays.push({
-      ownerId: r.ownerId,
-      siteId: r.siteId,
-      start: r.startDate.slice(0, 10),
-      // An occupied rental can carry a planned end date; it counts until then.
-      end: r.endDate ? r.endDate.slice(0, 10) : null,
-    });
+    if (start > today) issues.occupiedFutureStart += 1;
+    if (end && end <= today) issues.occupiedPastEnd += 1;
+    stays.push({ ownerId: r.ownerId, siteId: r.siteId, start, end: null });
   }
-  return { stays, endedWithoutEndDate, withoutStartDate };
+  return { stays, issues };
 }
 
 export async function getCohortReport(): Promise<CohortReport> {
@@ -157,7 +179,7 @@ export async function getCohortReport(): Promise<CohortReport> {
     fetchSites(),
   ]);
   const today = jakartaToday();
-  const { stays, endedWithoutEndDate, withoutStartDate } = toStays([...occupied, ...ended]);
+  const { stays, issues } = toStays([...occupied, ...ended], today);
 
   const siteIds = Array.from(new Set(stays.map((s) => s.siteId)));
   const nameById = new Map(sites.map((s) => [s.id, pickTitle(s.title, s.code ?? s.id)]));
@@ -179,6 +201,6 @@ export async function getCohortReport(): Promise<CohortReport> {
     sites: siteIds.map((id) => ({ id, name: nameById.get(id) ?? id })).sort((a, b) => a.name.localeCompare(b.name)),
     tables,
     occupiedNow,
-    issues: { endedWithoutEndDate, withoutStartDate },
+    issues,
   };
 }
