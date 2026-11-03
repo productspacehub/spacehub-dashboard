@@ -14,6 +14,7 @@ import type { OccupancySnapshotWithDelta } from "@/lib/snapshots";
 import type { CashinResponse } from "@/app/api/cashin/route";
 import type { MoveActivityResponse } from "@/app/api/move-activity/route";
 import type { BookingActivityResponse } from "@/app/api/booking-activity/route";
+import type { CohortReport } from "@/lib/cohort";
 
 // 4 hours — this dashboard's data doesn't change fast enough to justify
 // polling more often, and occupancy/cash-in/move-activity all do non-trivial
@@ -75,6 +76,8 @@ export default function Home() {
   const cashin = useAutoRefresh<CashinResponse>("/api/cashin");
   const moveActivity = useAutoRefresh<MoveActivityResponse>("/api/move-activity");
   const bookingActivity = useAutoRefresh<BookingActivityResponse>("/api/booking-activity");
+  const cohort = useAutoRefresh<CohortReport>("/api/cohort");
+  const retention = (offset: number) => cohort.data?.tables.all?.customer.curve.find((p) => p.offset === offset);
 
   return (
     <div className="min-h-screen px-6 py-10 sm:px-10">
@@ -94,6 +97,7 @@ export default function Home() {
                 cashin.reload();
                 moveActivity.reload();
                 bookingActivity.reload();
+                cohort.reload();
               }}
               className="text-sm hover:underline"
               style={{ color: "var(--text-secondary)" }}
@@ -267,6 +271,36 @@ export default function Home() {
                 </div>
                 <p className="text-xs" style={{ color: "var(--text-muted)" }}>
                   Bulan berjalan · {moveActivity.data.bySite.length} site
+                </p>
+              </>
+            )}
+          </ModuleCard>
+
+          <ModuleCard label="Retensi Cohort" dotColor="var(--series-1)" href="/cohort" loading={cohort.loading && !!cohort.data}>
+            {cohort.error && (
+              <p className="text-xs" style={{ color: "var(--status-critical)" }}>
+                {cohort.error}
+              </p>
+            )}
+            {cohort.loading && !cohort.data && (
+              <p className="text-sm" style={{ color: "var(--text-secondary)" }}>
+                Loading…
+              </p>
+            )}
+            {cohort.data && (
+              <>
+                <div className="flex flex-col items-start gap-1">
+                  <p className="text-3xl font-bold" style={{ color: "var(--text-primary)" }}>
+                    {retention(6) ? `${Math.round(retention(6)!.rate * 100)}%` : "–"}
+                  </p>
+                  <p className="text-xs" style={{ color: "var(--text-secondary)" }}>
+                    pelanggan masih menyewa setelah 6 bulan
+                  </p>
+                </div>
+                <Meter value={(retention(6)?.rate ?? 0) * 100} />
+                <p className="text-xs" style={{ color: "var(--text-muted)" }}>
+                  Bulan ke-1: {retention(1) ? `${Math.round(retention(1)!.rate * 100)}%` : "–"} · bulan ke-12:{" "}
+                  {retention(12) ? `${Math.round(retention(12)!.rate * 100)}%` : "–"}
                 </p>
               </>
             )}

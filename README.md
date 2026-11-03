@@ -213,6 +213,25 @@ Open [http://localhost:3000](http://localhost:3000) — you'll be redirected to
     Extend is skipped for the period (`skippedExtendCategorization`) rather
     than risk a slow request; Move In/Move Out are unaffected since they don't
     depend on this lookup.
+- `src/lib/cohort.ts` / `/api/cohort` / `/cohort` (card on `/`) — **Retensi
+  Cohort**: monthly retention cohorts for the current month and the 24 before
+  it, each followed for up to 24 months.
+  - Built from `unit-rentals?state=occupied` and `?state=ended` (start and end
+    dates, Jakarta calendar days) — rentals that actually moved in. Ended
+    rentals without an `endDate` and rentals without a `startDate` are left
+    out and counted on the page.
+  - **Per pelanggan** (default): cohort = month of a customer's first move-in;
+    they count as staying at the end of month +k while renting at least one
+    unit (moving units isn't leaving; leaving and coming back counts as
+    active again). **Per unit**: every rental followed on its own. A rental
+    ending on the last day of a month is gone at that month's end; the
+    current month is counted as of today. Optional site filter (only that
+    site's rentals).
+  - Shows headline retention at months 1/3/6/12 and an average curve (both
+    weighted by cohort size, over cohorts that reached that month; months
+    reached by fewer than 3 cohorts drawn dashed), the heatmap table, and a
+    data check: "renting today" from the dates vs what Storeganise currently
+    marks occupied (units list / owners of occupied rentals).
   - The daily chart stacks Move In and Extend above a zero baseline (two
     colors, one stack) with Move Out as a separate bar below it — mirroring
     the team's existing weekly "Activation vs Churn" report, just re-colored
