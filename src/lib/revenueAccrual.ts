@@ -1,5 +1,15 @@
 import { classifyDescription, isDepositEntry } from "./cashin";
 import { ensureSchema, query, transaction } from "./db";
+import {
+  addDays,
+  addMonths,
+  closingDateOf,
+  daysBetween,
+  HISTORY_MONTHS,
+  projectMonth,
+  type MonthPosition,
+  type ProjectionResult,
+} from "./revenueProjection";
 import { jakartaToday } from "./snapshots";
 import { fetchSites, paginate, pickTitle } from "./storeganise";
 
@@ -43,11 +53,7 @@ export type Allocation = { line: number; part: number; month: string; category: 
 
 const jakartaMonthOf = (iso: string) => new Date(iso).toLocaleDateString("en-CA", { timeZone: "Asia/Jakarta" }).slice(0, 7);
 
-export function addMonths(month: string, n: number): string {
-  const [y, m] = month.split("-").map(Number);
-  const total = y * 12 + (m - 1) + n;
-  return `${Math.floor(total / 12)}-${String((total % 12) + 1).padStart(2, "0")}`;
-}
+export { addMonths };
 
 // Whole months in [start, end): 19 Nov → 19 Dec = 1, 8 Dec → 8 Feb = 2.
 export function monthsBetween(start: string, end: string): number {
@@ -120,8 +126,14 @@ export async function syncRevenue(timeBudgetMs = 40_000): Promise<SyncResult> {
   const from = `${addMonths(jakartaToday().slice(0, 7), -SYNC_MONTHS)}-01`;
   try {
     const listed = await paginate<AccrualInvoice>(`/v1/admin/invoices?start=${from}`);
+    // Rows synced before created_at was stored count as changed, so they're
+    // fetched once more (the projection needs to know when each was issued).
     const stored = new Map(
-      (await query<{ invoice_id: string; version: string }>("SELECT invoice_id, version FROM revenue_invoices")).map((r) => [r.invoice_id, r.version])
+      (
+        await query<{ invoice_id: string; version: string; has_created: boolean }>(
+          "SELECT invoice_id, version, created_at IS NOT NULL AS has_created FROM revenue_invoices"
+        )
+      ).map((r) => [r.invoice_id, r.has_created ? r.version : ""])
     );
     const changed = listed.filter((i) => stored.get(i.id) !== versionOf(i));
 
@@ -156,7 +168,7 @@ async function saveInvoices(invoices: AccrualInvoice[]): Promise<void> {
   for (const inv of invoices) {
     const { allocations, cashAmount } = allocateInvoice(inv);
     const paidDate = inv.state === "paid" ? (inv.paid ?? inv.updated ?? inv.created).slice(0, 10) : null;
-    invRows.push([inv.id, inv.siteId ?? "", inv.state, versionOf(inv), paidDate, cashAmount]);
+    invRows.push([inv.id, inv.siteId ?? "", inv.state, versionOf(inv), paidDate, cashAmount, inv.created]);
     for (const a of allocations) lineRows.push([inv.id, a.line, a.part, a.month, a.category, a.amount, a.flag]);
   }
   await transaction(async (q) => {
@@ -164,11 +176,11 @@ async function saveInvoices(invoices: AccrualInvoice[]): Promise<void> {
     await q("SELECT pg_advisory_xact_lock($1)", [SYNC_LOCK_ID]);
     await q("DELETE FROM revenue_lines WHERE invoice_id = ANY($1)", [invoices.map((i) => i.id)]);
     await q(
-      `INSERT INTO revenue_invoices (invoice_id, site_id, state, version, paid_date, cash_amount)
-       SELECT * FROM UNNEST($1::text[], $2::text[], $3::text[], $4::text[], $5::date[], $6::numeric[])
+      `INSERT INTO revenue_invoices (invoice_id, site_id, state, version, paid_date, cash_amount, created_at)
+       SELECT * FROM UNNEST($1::text[], $2::text[], $3::text[], $4::text[], $5::date[], $6::numeric[], $7::timestamptz[])
        ON CONFLICT (invoice_id) DO UPDATE SET site_id = EXCLUDED.site_id, state = EXCLUDED.state, version = EXCLUDED.version,
-         paid_date = EXCLUDED.paid_date, cash_amount = EXCLUDED.cash_amount, synced_at = now()`,
-      columns(invRows, 6)
+         paid_date = EXCLUDED.paid_date, cash_amount = EXCLUDED.cash_amount, created_at = EXCLUDED.created_at, synced_at = now()`,
+      columns(invRows, 7)
     );
     if (lineRows.length > 0) {
       await q(
@@ -189,6 +201,42 @@ function columns(rows: unknown[], n: number): unknown[][] {
 
 // Invoice states that will never be paid — left out of "not paid yet".
 const DEAD_STATES = /(cancel|void|draft|writ)/i;
+const DEAD_STATES_SQL = "(cancel|void|draft|writ)";
+
+export type RevenueProjection = ProjectionResult & { asOf: string; closingDate: string; day: number };
+
+// Where `month` stands today against where each of the last closed months
+// stood the same number of days into it. All sites; null while too few
+// months are on record, or once the month has closed.
+async function getProjection(month: string, today: string): Promise<RevenueProjection | null> {
+  const closingDate = closingDateOf(month);
+  if (today > closingDate) return null;
+  const offset = daysBetween(`${month}-01`, today);
+  const history: string[] = [];
+  for (let m = addMonths(month, -1); history.length < HISTORY_MONTHS && m >= addMonths(month, -24); m = addMonths(m, -1)) {
+    if (closingDateOf(m) < today) history.push(m);
+  }
+  const months = [month, ...history];
+  const rows = await query<{ month: string; final: string | null; realized: string | null; unpaid: string | null; collected: string | null }>(
+    `WITH p(month, as_of, close) AS (SELECT * FROM UNNEST($1::text[], $2::date[], $3::date[]))
+     SELECT p.month,
+       SUM(l.amount) FILTER (WHERE i.paid_date <= p.close) AS final,
+       SUM(l.amount) FILTER (WHERE i.paid_date <= p.as_of) AS realized,
+       SUM(l.amount) FILTER (WHERE (i.created_at AT TIME ZONE 'Asia/Jakarta')::date <= p.as_of
+         AND (i.paid_date IS NULL OR i.paid_date > p.as_of) AND i.state !~* $4) AS unpaid,
+       SUM(l.amount) FILTER (WHERE (i.created_at AT TIME ZONE 'Asia/Jakarta')::date <= p.as_of
+         AND i.paid_date > p.as_of AND i.paid_date <= p.close AND i.state !~* $4) AS collected
+     FROM p JOIN revenue_lines l ON l.month = p.month JOIN revenue_invoices i USING (invoice_id)
+     GROUP BY p.month`,
+    [months, months.map((m) => (m === month ? today : addDays(`${m}-01`, offset))), months.map(closingDateOf), DEAD_STATES_SQL]
+  );
+  const at = (m: string): MonthPosition => {
+    const r = rows.find((x) => x.month === m);
+    return { month: m, final: Number(r?.final ?? 0), realized: Number(r?.realized ?? 0), unpaid: Number(r?.unpaid ?? 0), collected: Number(r?.collected ?? 0) };
+  };
+  const result = projectMonth(at(month), history.map(at));
+  return result && { ...result, asOf: today, closingDate, day: offset + 1 };
+}
 
 export type CategoryTotals = Record<RevenueCategory, number>;
 const emptyTotals = (): CategoryTotals => ({ rent: 0, lateFee: 0, item: 0, unclassified: 0 });
@@ -212,6 +260,9 @@ export type RevenueReport = {
   bySite: { siteId: string; siteName: string; totals: CategoryTotals; total: number; comparison: number }[];
   checks: { qtyMismatch: number; rentNoPeriod: number; unclassified: { lines: number; amount: number } };
   sync: { lastRun: string | null; listed: number; pending: number; lastError: string | null; invoices: number };
+  // Only for all sites and a month not yet closed; null with a reason otherwise.
+  projection: RevenueProjection | null;
+  projectionStatus: "ok" | "closed" | "site" | "insufficient";
 };
 
 function lastDayOf(month: string): string {
@@ -276,7 +327,7 @@ export async function getRevenueReport(monthParam: string, site: string): Promis
       ),
       query<{ state: string; invoice_id: string; amount: string }>(
         `SELECT i.state, i.invoice_id, SUM(l.amount) AS amount FROM revenue_lines l JOIN revenue_invoices i USING (invoice_id)
-         WHERE i.paid_date IS NULL AND l.category = 'rent' AND l.month = $2 AND ($1::text IS NULL OR i.site_id = $1)
+         WHERE i.paid_date IS NULL AND l.month = $2 AND ($1::text IS NULL OR i.site_id = $1)
          GROUP BY i.state, i.invoice_id`,
         [siteFilter, month]
       ),
@@ -302,6 +353,8 @@ export async function getRevenueReport(monthParam: string, site: string): Promis
   const siteName = new Map(sites.map((s) => [s.id, pickTitle(s.title, s.code ?? s.id)]));
   const siteIds = Array.from(new Set(siteRows.map((r) => r.site_id!)));
   const sync = syncRows[0];
+  const closed = today > closingDateOf(month);
+  const projection = siteFilter || closed ? null : await getProjection(month, today);
 
   return {
     generatedAt: new Date().toISOString(),
@@ -347,5 +400,7 @@ export async function getRevenueReport(monthParam: string, site: string): Promis
       lastError: sync?.last_error ?? null,
       invoices: Number(sync?.invoices ?? 0),
     },
+    projection,
+    projectionStatus: closed ? "closed" : siteFilter ? "site" : projection ? "ok" : "insufficient",
   };
 }

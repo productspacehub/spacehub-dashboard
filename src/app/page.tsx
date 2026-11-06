@@ -262,6 +262,18 @@ export default function Home() {
                     />
                   ))}
                 </div>
+                {revenue.data.projection && (
+                  <p className="text-xs" style={{ color: "var(--text-secondary)" }}>
+                    Proyeksi tutup buku:{" "}
+                    <b style={{ color: "var(--text-primary)" }}>
+                      Rp{(revenue.data.projection.value / 1e6).toLocaleString("id-ID", { maximumFractionDigits: 1 })} jt
+                    </b>{" "}
+                    <span style={{ color: "var(--text-muted)" }}>
+                      ({(revenue.data.projection.low / 1e6).toLocaleString("id-ID", { maximumFractionDigits: 0 })}–
+                      {(revenue.data.projection.high / 1e6).toLocaleString("id-ID", { maximumFractionDigits: 0 })} jt)
+                    </span>
+                  </p>
+                )}
                 <p className="text-xs" style={{ color: "var(--text-muted)" }}>
                   Bulan berjalan · accrual{revenue.data.sync.pending > 0 ? " · data belum lengkap" : ""}
                 </p>

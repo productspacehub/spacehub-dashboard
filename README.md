@@ -240,6 +240,18 @@ Open [http://localhost:3000](http://localhost:3000) — you'll be redirected to
     invoices paid that month — close to, not identical with, Cash-in), per
     site, and lines that don't fit the rules (rent without a period, `qty` ≠
     months of the period, unclassified).
+  - **Proyeksi saat tutup buku** (`src/lib/revenueProjection.ts`): the
+    month's accrual revenue as it will stand at finance's closing (paid by
+    the 5th of the next month), for all sites and only while the month is
+    open. From where the month stands today vs where each of the last 12
+    closed months stood the same number of days in: realized (paid), unpaid
+    issued invoices × the share usually paid before closing, ÷ the share of
+    the closing figure usually covered by then. The range is the largest
+    miss up/down when the same method is run on each past month with the
+    other months' rates (leave-one-out), shown in "Seberapa akurat
+    proyeksinya?". Needs 3+ closed months on record; uses each invoice's
+    issue date (`created_at`), which rows synced before it existed get on
+    their next sync.
 - `src/lib/cohort.ts` / `/api/cohort` / `/cohort` (card on `/`) — **Retensi
   Cohort**: monthly retention cohorts for the current month and the 24 before
   it, each followed for up to 24 months.

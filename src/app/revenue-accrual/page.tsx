@@ -7,7 +7,7 @@ import { signOut, useSession } from "next-auth/react";
 import { DeltaBadge } from "@/components/DeltaBadge";
 import { formatIdr } from "@/components/CashinDailyChart";
 import { REVENUE_COLORS, REVENUE_LABELS, REVENUE_ORDER as ORDER } from "@/components/revenueStyle";
-import type { RevenueReport } from "@/lib/revenueAccrual";
+import type { RevenueProjection, RevenueReport } from "@/lib/revenueAccrual";
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "Mei", "Jun", "Jul", "Agu", "Sep", "Okt", "Nov", "Des"];
 const LONG = ["Januari", "Februari", "Maret", "April", "Mei", "Juni", "Juli", "Agustus", "September", "Oktober", "November", "Desember"];
@@ -169,6 +169,126 @@ function TrendChart({ trend, selected, onPick }: { trend: RevenueReport["trend"]
         </div>
       )}
     </div>
+  );
+}
+
+const PROJ_COLOR = REVENUE_COLORS.rent;
+
+function ProjectionCard({ p, month }: { p: RevenueProjection; month: string }) {
+  const closing = `${Number(p.closingDate.slice(8, 10))} ${LONG[Number(p.closingDate.slice(5, 7)) - 1]}`;
+  const segments: [number, string, number][] = [
+    [p.realized, PROJ_COLOR, 1],
+    [p.expectedFromUnpaid, PROJ_COLOR, 0.55],
+    [Math.max(0, p.rest), "var(--text-secondary)", 0.35],
+  ];
+  const steps: [string, string, number, string, number][] = [
+    ["Sudah masuk", "invoice lunas, periode bulan ini", p.realized, PROJ_COLOR, 1],
+    [
+      "Sudah ditagih, belum dibayar",
+      `${formatIdr(p.unpaid)} × ${Math.round(p.collectRate * 100)}% yang biasanya lunas sebelum tutup buku`,
+      p.expectedFromUnpaid,
+      PROJ_COLOR,
+      0.55,
+    ],
+    ["Perkiraan sisa bulan", "perpanjangan yang belum ditagih, move-in baru, late fee & barang", p.rest, "var(--text-secondary)", 0.35],
+  ];
+  return (
+    <section className="mb-8 rounded-2xl border p-6" style={card}>
+      <p className="mb-1 text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
+        Proyeksi saat tutup buku — {monthName(month)}
+        <span className="ml-2 rounded-full px-2 py-0.5 align-[2px] text-[11px] font-bold" style={{ background: "rgba(25,185,234,.16)", color: "var(--series-1)" }}>
+          PROYEKSI
+        </span>
+      </p>
+      <p className="mb-4 text-xs leading-relaxed" style={{ color: "var(--text-muted)" }}>
+        Perkiraan revenue accrual {LONG[Number(month.slice(5, 7)) - 1]} per tanggal {closing} (tutup buku finance). Hari ke-{p.day} sejak awal
+        bulan.
+      </p>
+      {/* An estimate: shown in millions, not to the rupiah. */}
+      <p className="text-4xl font-bold" style={{ color: "var(--text-primary)" }}>
+        {jt(p.value)}
+      </p>
+      <p className="mt-1 text-xs" style={{ color: "var(--text-muted)" }}>
+        Kemungkinan{" "}
+        <b style={{ color: "var(--text-primary)" }}>
+          {jt(p.low)} – {jt(p.high)}
+        </b>{" "}
+        · berdasarkan seberapa meleset metode ini di {p.monthsUsed} bulan terakhir
+      </p>
+      <div className="mt-4 mb-4 flex h-3.5 w-full gap-0.5 overflow-hidden rounded-full" style={{ background: "var(--background)" }}>
+        {segments
+          .filter(([v]) => v > 0)
+          .map(([v, color, opacity], i) => (
+            <div key={i} style={{ width: `${(v / p.value) * 100}%`, background: color, opacity }} />
+          ))}
+      </div>
+      <table className="w-full text-sm tabular-nums">
+        <tbody>
+          {steps.map(([label, note, v, color, opacity]) => (
+            <tr key={label} style={{ borderTop: "1px solid var(--gridline)" }}>
+              <td className="py-2 pr-3">
+                <span className="mr-2 inline-block h-2.5 w-2.5 rounded-sm align-[-1px]" style={{ background: color, opacity }} />
+                <span style={{ color: "var(--text-primary)" }}>{label}</span>{" "}
+                <span className="text-xs" style={{ color: "var(--text-muted)" }}>
+                  — {note}
+                </span>
+              </td>
+              <td className="py-2 text-right whitespace-nowrap" style={{ color: "var(--text-primary)" }}>
+                {label === "Sudah masuk" ? jt(v) : `${v < 0 ? "−" : "+"}${jt(Math.abs(v))}`}
+              </td>
+            </tr>
+          ))}
+          <tr className="font-semibold" style={{ borderTop: "1px solid var(--gridline)", color: "var(--text-primary)" }}>
+            <td className="py-2">Proyeksi saat tutup buku</td>
+            <td className="py-2 text-right whitespace-nowrap">{jt(p.value)}</td>
+          </tr>
+        </tbody>
+      </table>
+      <p className="mt-3 text-xs leading-relaxed" style={{ color: "var(--text-muted)" }}>
+        Perkiraan sisa bulan: pada hari ke-{p.day}, invoice yang sudah ada (lunas + belum dibayar yang nantinya lunas) biasanya baru mencakup{" "}
+        {Math.round(p.share * 100)}% dari angka saat tutup buku — rata-rata {p.monthsUsed} bulan terakhir. Hanya untuk semua site.
+      </p>
+    </section>
+  );
+}
+
+function Backtest({ p }: { p: RevenueProjection }) {
+  return (
+    <Section
+      title="Seberapa akurat proyeksinya?"
+      subtitle={`Metode yang sama dijalankan mundur: proyeksi yang akan muncul pada hari ke-${p.day} tiap bulan (memakai pola bulan-bulan lainnya), dibanding angka saat tutup buku. Rata-rata meleset ${(p.meanAbsError * 100).toFixed(1)}%; rentang di atas memakai selisih terbesar ke atas dan ke bawah.`}
+    >
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm tabular-nums">
+          <thead>
+            <tr className="text-left text-[11px] font-bold tracking-wide uppercase" style={{ color: "var(--text-muted)" }}>
+              <th className="pr-2 pb-2">Bulan</th>
+              <th className="pr-2 pb-2 text-right">Proyeksi hari ke-{p.day}</th>
+              <th className="pr-2 pb-2 text-right">Saat tutup buku</th>
+              <th className="pb-2 text-right">Selisih</th>
+            </tr>
+          </thead>
+          <tbody>
+            {p.backtest.map((b) => (
+              <tr key={b.month} style={{ borderTop: "1px solid var(--gridline)" }}>
+                <td className="py-2 pr-2" style={{ color: "var(--text-primary)" }}>
+                  {shortMonth(b.month)} {b.month.slice(0, 4)}
+                </td>
+                <td className="py-2 pr-2 text-right whitespace-nowrap">{jt(b.projected)}</td>
+                <td className="py-2 pr-2 text-right whitespace-nowrap">{jt(b.actual)}</td>
+                <td
+                  className="py-2 text-right whitespace-nowrap"
+                  style={{ color: Math.abs(b.error) > 0.04 ? "var(--status-critical)" : "var(--text-muted)" }}
+                >
+                  {b.error >= 0 ? "+" : ""}
+                  {(b.error * 100).toFixed(1)}%
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </Section>
   );
 }
 
@@ -411,6 +531,23 @@ export default function RevenueAccrualPage() {
                 />
               </div>
             </Section>
+
+            {data.projection && (
+              <>
+                <ProjectionCard p={data.projection} month={data.month} />
+                <Backtest p={data.projection} />
+              </>
+            )}
+            {!data.projection && data.projectionStatus === "insufficient" && (
+              <p className="mb-8 text-xs" style={{ color: "var(--text-muted)" }}>
+                Proyeksi saat tutup buku belum tersedia: perlu data minimal 3 bulan yang sudah tutup buku.
+              </p>
+            )}
+            {!data.projection && data.projectionStatus === "site" && (
+              <p className="mb-8 text-xs" style={{ color: "var(--text-muted)" }}>
+                Proyeksi saat tutup buku hanya tersedia untuk semua site.
+              </p>
+            )}
 
             <Section
               title="Tren 12 bulan"

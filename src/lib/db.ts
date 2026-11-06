@@ -280,6 +280,9 @@ async function createSchema(): Promise<void> {
         PRIMARY KEY (invoice_id, line, part)
       );
       CREATE INDEX IF NOT EXISTS revenue_lines_month_idx ON revenue_lines (month);
+      -- When the invoice was issued, for the month-end projection. Rows
+      -- synced before this column existed are re-fetched by the next sync.
+      ALTER TABLE revenue_invoices ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ;
       CREATE TABLE IF NOT EXISTS revenue_sync (
         id          INTEGER PRIMARY KEY CHECK (id = 1),
         last_run    TIMESTAMPTZ,
