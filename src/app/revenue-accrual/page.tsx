@@ -241,6 +241,13 @@ function FlaggedLines({ lines, counts }: { lines: FlaggedLine[]; counts: Record<
                 <td className="px-3 py-2 whitespace-nowrap">
                   {l.detail?.date ? shortDate(l.detail.date) : "–"}
                   {l.detail?.endDate ? ` – ${shortDate(lastDayOf(l.detail.endDate))}` : ""}
+                  {l.detail?.otherDates && Object.keys(l.detail.otherDates).length > 0 && (
+                    <span className="block text-[11px] whitespace-normal" style={{ color: "var(--text-muted)" }}>
+                      {Object.entries(l.detail.otherDates)
+                        .map(([k, v]) => `${k}: ${v}`)
+                        .join(" · ")}
+                    </span>
+                  )}
                 </td>
                 <td className="px-3 py-2 text-right">{l.detail?.qty ?? "–"}</td>
                 <td className="px-3 py-2 text-right whitespace-nowrap">{formatIdr(l.amount)}</td>

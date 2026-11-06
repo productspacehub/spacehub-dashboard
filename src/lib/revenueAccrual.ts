@@ -37,6 +37,7 @@ export type InvoiceLine = {
   endDate?: string;
   qty?: number;
   total?: number;
+  [field: string]: unknown;
 };
 
 export type AccrualInvoice = {
@@ -47,12 +48,39 @@ export type AccrualInvoice = {
   created: string;
   updated?: string;
   paid?: string;
+  startDate?: string;
+  endDate?: string;
   entries?: InvoiceLine[];
 };
 
 // What the data-quality list shows for a line that doesn't fit the rules,
 // so it can be found and checked in Storeganise. Kept only for those lines.
-export type LineDetail = { desc: string; type: string; date: string | null; endDate: string | null; qty: number | null; total: number };
+// `otherDates`: every other date-like field on the line, plus the invoice's
+// own start/end — to see where a period lives when it isn't in
+// date/endDate (shown in the list, not used in the calculation).
+export type LineDetail = {
+  desc: string;
+  type: string;
+  date: string | null;
+  endDate: string | null;
+  qty: number | null;
+  total: number;
+  otherDates?: Record<string, string>;
+};
+
+const KNOWN_LINE_FIELDS = new Set(["date", "endDate", "created", "updated"]);
+const DATE_LIKE_FIELD = /(date|start|end|period|from|until|month|display)/i;
+
+function otherDatesOf(e: InvoiceLine, inv: AccrualInvoice): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(e)) {
+    if (KNOWN_LINE_FIELDS.has(k) || !DATE_LIKE_FIELD.test(k)) continue;
+    if ((typeof v === "string" && v !== "") || typeof v === "number") out[k] = String(v).slice(0, 40);
+  }
+  if (inv.startDate) out["invoice.startDate"] = inv.startDate.slice(0, 10);
+  if (inv.endDate) out["invoice.endDate"] = inv.endDate.slice(0, 10);
+  return out;
+}
 
 export type Allocation = {
   line: number;
@@ -93,6 +121,7 @@ export function allocateInvoice(inv: AccrualInvoice): { allocations: Allocation[
       endDate: e.endDate?.slice(0, 10) ?? null,
       qty: e.qty ?? null,
       total,
+      otherDates: otherDatesOf(e, inv),
     };
 
     if (e.date && e.endDate) {
@@ -164,7 +193,7 @@ export async function syncRevenue(timeBudgetMs = 40_000): Promise<SyncResult> {
         await query<{ invoice_id: string; version: string; complete: boolean }>(
           `SELECT i.invoice_id, i.version, i.created_at IS NOT NULL AND NOT EXISTS (
              SELECT 1 FROM revenue_lines l WHERE l.invoice_id = i.invoice_id
-               AND (l.flag IS NOT NULL OR l.category = 'unclassified') AND l.detail IS NULL
+               AND (l.flag IS NOT NULL OR l.category = 'unclassified') AND (l.detail IS NULL OR NOT l.detail ? 'otherDates')
            ) AS complete
            FROM revenue_invoices i`
         )
