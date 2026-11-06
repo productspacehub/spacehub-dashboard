@@ -213,6 +213,33 @@ Open [http://localhost:3000](http://localhost:3000) — you'll be redirected to
     Extend is skipped for the period (`skippedExtendCategorization`) rather
     than risk a slow request; Move In/Move Out are unaffected since they don't
     depend on this lookup.
+- `src/lib/revenueAccrual.ts` / `/api/revenue-accrual` / `/revenue-accrual`
+  (card on `/`) — **Revenue (Accrual)**, by SpaceHub finance's rules:
+  - Rent counts in full in the month its period starts; a line covering
+    several months (`qty` > 1, e.g. `type: prepayment`) is split evenly by
+    `qty`, each part in the month its own period starts. The period is on
+    each invoice line (`date` → `endDate`, end exclusive) — the invoice's own
+    `startDate`/`endDate` are not the period (verified on real invoices).
+  - Late fees and items (same keyword rules as Cash-in, shared from
+    `cashin.ts`) count in the month the invoice was created (Jakarta).
+  - Only `state: paid` invoices count (Storeganise marks paid only when paid
+    in full); a late payment still counts in the period's month, so past
+    months can grow. Deposits (`type: deposit` or "deposit" in the
+    description) are never revenue. No refunds, no VAT (PTKP).
+  - Invoices from the last 24 months are synced into Postgres
+    (`revenue_invoices`, `revenue_lines`: amounts and dates only, no customer
+    data): daily via Vercel Cron (`/api/cron/revenue-sync`, same
+    `CRON_SECRET` as the other crons) and on "Refresh now". Only invoices
+    whose state/`updated`/`paid` changed are fetched again; each run stops
+    after ~40s and reports `pending`, and the page keeps calling
+    `/api/revenue-accrual/sync` until it's 0 (the first fill after deploy).
+  - The page reads only the database: month total by category with "vs pace
+    bulan lalu" for the current month (last month as it stood on the same
+    day, by paid date), not-yet-paid rent for the month, rent already paid for
+    later months, a 12-month trend with money received (non-deposit totals of
+    invoices paid that month — close to, not identical with, Cash-in), per
+    site, and lines that don't fit the rules (rent without a period, `qty` ≠
+    months of the period, unclassified).
 - `src/lib/cohort.ts` / `/api/cohort` / `/cohort` (card on `/`) — **Retensi
   Cohort**: monthly retention cohorts for the current month and the 24 before
   it, each followed for up to 24 months.

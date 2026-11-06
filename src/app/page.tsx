@@ -15,6 +15,8 @@ import type { CashinResponse } from "@/app/api/cashin/route";
 import type { MoveActivityResponse } from "@/app/api/move-activity/route";
 import type { BookingActivityResponse } from "@/app/api/booking-activity/route";
 import type { CohortReport } from "@/lib/cohort";
+import type { RevenueAccrualResponse } from "@/app/api/revenue-accrual/route";
+import { REVENUE_COLORS, REVENUE_ORDER } from "@/components/revenueStyle";
 
 // 4 hours — this dashboard's data doesn't change fast enough to justify
 // polling more often, and occupancy/cash-in/move-activity all do non-trivial
@@ -77,6 +79,7 @@ export default function Home() {
   const moveActivity = useAutoRefresh<MoveActivityResponse>("/api/move-activity");
   const bookingActivity = useAutoRefresh<BookingActivityResponse>("/api/booking-activity");
   const cohort = useAutoRefresh<CohortReport>("/api/cohort");
+  const revenue = useAutoRefresh<RevenueAccrualResponse>("/api/revenue-accrual");
   const retention = (offset: number) => cohort.data?.tables.all?.customer.curve.find((p) => p.offset === offset);
 
   return (
@@ -98,6 +101,7 @@ export default function Home() {
                 moveActivity.reload();
                 bookingActivity.reload();
                 cohort.reload();
+                revenue.reload();
               }}
               className="text-sm hover:underline"
               style={{ color: "var(--text-secondary)" }}
@@ -208,6 +212,58 @@ export default function Home() {
                 </div>
                 <p className="text-xs" style={{ color: "var(--text-muted)" }}>
                   Bulan berjalan · {cashin.data.bySite.length} site
+                </p>
+              </>
+            )}
+          </ModuleCard>
+
+          <ModuleCard
+            label="Revenue (Accrual)"
+            dotColor={REVENUE_COLORS.rent}
+            href="/revenue-accrual"
+            loading={revenue.loading && !!revenue.data}
+          >
+            {revenue.error && (
+              <p className="text-xs" style={{ color: "var(--status-critical)" }}>
+                {revenue.error}
+              </p>
+            )}
+            {revenue.loading && !revenue.data && (
+              <p className="text-sm" style={{ color: "var(--text-secondary)" }}>
+                Loading…
+              </p>
+            )}
+            {revenue.data && revenue.data.sync.invoices === 0 && (
+              <p className="text-sm" style={{ color: "var(--text-secondary)" }}>
+                Invoice belum diambil dari Storeganise — buka detail untuk memulai.
+              </p>
+            )}
+            {revenue.data && revenue.data.sync.invoices > 0 && (
+              <>
+                <div className="flex flex-col items-start gap-1">
+                  <p className="text-3xl font-bold" style={{ color: "var(--text-primary)" }}>
+                    {formatIdr(revenue.data.total)}
+                  </p>
+                  <DeltaBadge
+                    value={
+                      revenue.data.comparison.total > 0
+                        ? ((revenue.data.total - revenue.data.comparison.total) / revenue.data.comparison.total) * 100
+                        : null
+                    }
+                    format="percent"
+                    label="vs pace bulan lalu"
+                  />
+                </div>
+                <div className="flex h-2.5 w-full gap-0.5 overflow-hidden rounded-full" style={{ background: "var(--background)" }}>
+                  {REVENUE_ORDER.filter((c) => revenue.data!.totals[c] > 0).map((c) => (
+                    <div
+                      key={c}
+                      style={{ width: `${(revenue.data!.totals[c] / (revenue.data!.total || 1)) * 100}%`, background: REVENUE_COLORS[c] }}
+                    />
+                  ))}
+                </div>
+                <p className="text-xs" style={{ color: "var(--text-muted)" }}>
+                  Bulan berjalan · accrual{revenue.data.sync.pending > 0 ? " · data belum lengkap" : ""}
                 </p>
               </>
             )}

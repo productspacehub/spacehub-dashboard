@@ -27,6 +27,22 @@ export async function query<T extends Record<string, unknown> = Record<string, u
   return rows as T[];
 }
 
+// Runs `fn` in one transaction on one connection; rolls back if it throws.
+export async function transaction<T>(fn: (q: (text: string, params?: unknown[]) => Promise<unknown[]>) => Promise<T>): Promise<T> {
+  const client = await getPool().connect();
+  try {
+    await client.query("BEGIN");
+    const result = await fn(async (text, params) => (await client.query(text, params)).rows);
+    await client.query("COMMIT");
+    return result;
+  } catch (err) {
+    await client.query("ROLLBACK").catch(() => undefined);
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
 let schemaReadyPromise: Promise<void> | undefined;
 
 // Arbitrary constant for the advisory lock below — any fixed int64 works, it
@@ -239,6 +255,38 @@ async function createSchema(): Promise<void> {
       ALTER TABLE address_overrides ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'manual';
       ALTER TABLE address_overrides ADD COLUMN IF NOT EXISTS import_batch TEXT;
       CREATE INDEX IF NOT EXISTS address_overrides_batch_idx ON address_overrides (import_batch);
+
+      -- Accrual revenue (/revenue-accrual): each invoice line spread into the
+      -- months it counts in, kept in sync daily from Storeganise. Amounts and
+      -- dates only — no customer data. version = Storeganise state/updated/
+      -- paid, so unchanged invoices aren't fetched again.
+      CREATE TABLE IF NOT EXISTS revenue_invoices (
+        invoice_id   TEXT PRIMARY KEY,
+        site_id      TEXT NOT NULL,
+        state        TEXT NOT NULL,
+        version      TEXT NOT NULL,
+        paid_date    DATE,
+        cash_amount  NUMERIC NOT NULL DEFAULT 0,
+        synced_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+      );
+      CREATE TABLE IF NOT EXISTS revenue_lines (
+        invoice_id  TEXT NOT NULL REFERENCES revenue_invoices(invoice_id) ON DELETE CASCADE,
+        line        INTEGER NOT NULL,
+        part        INTEGER NOT NULL,
+        month       TEXT NOT NULL,
+        category    TEXT NOT NULL CHECK (category IN ('rent', 'lateFee', 'item', 'unclassified')),
+        amount      NUMERIC NOT NULL,
+        flag        TEXT,
+        PRIMARY KEY (invoice_id, line, part)
+      );
+      CREATE INDEX IF NOT EXISTS revenue_lines_month_idx ON revenue_lines (month);
+      CREATE TABLE IF NOT EXISTS revenue_sync (
+        id          INTEGER PRIMARY KEY CHECK (id = 1),
+        last_run    TIMESTAMPTZ,
+        listed      INTEGER,
+        pending     INTEGER,
+        last_error  TEXT
+      );
     `);
     await client.query("COMMIT");
   } catch (err) {

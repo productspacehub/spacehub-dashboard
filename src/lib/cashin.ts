@@ -164,17 +164,25 @@ const NON_RENTAL_ITEM_KEYWORDS = [
 // Real invoices show deposit entries as an ordinary `type: "revenue"` line with
 // desc "Deposit" — the structured `type: "deposit"` value documented by Storeganise
 // doesn't actually appear in practice, so desc is checked either way.
-function isDepositEntry(entry: StoreganiseInvoiceEntry): boolean {
+// Exported (with classifyDescription below) for src/lib/revenueAccrual.ts, so
+// both modules agree on what a deposit, late fee or item is.
+export function isDepositEntry(entry: { type?: string; desc?: string }): boolean {
   return entry.type === "deposit" || (entry.desc ?? "").toLowerCase().includes("deposit");
 }
 
+export function classifyDescription(desc: string | undefined): "lateFee" | "item" | "rent" | null {
+  const d = (desc ?? "").toLowerCase();
+  if (d.includes(LATE_FEE_KEYWORD)) return "lateFee";
+  if (NON_RENTAL_ITEM_KEYWORDS.some((k) => d.includes(k))) return "item";
+  if (d.includes("rent")) return "rent";
+  return null;
+}
+
 function classifyEntry(entry: StoreganiseInvoiceEntry, isFirstInvoiceForRental: boolean): CashinBucket {
-  const desc = (entry.desc ?? "").toLowerCase();
   if (isDepositEntry(entry)) return "deposit";
-  if (desc.includes(LATE_FEE_KEYWORD)) return "lateFee";
-  if (NON_RENTAL_ITEM_KEYWORDS.some((k) => desc.includes(k))) return "item";
-  if (desc.includes("rent")) return isFirstInvoiceForRental ? "newRent" : "extension";
-  return "unclassified";
+  const kind = classifyDescription(entry.desc);
+  if (kind === "rent") return isFirstInvoiceForRental ? "newRent" : "extension";
+  return kind ?? "unclassified";
 }
 
 // Above this many distinct invoices in the period, skip entry-level categorization
