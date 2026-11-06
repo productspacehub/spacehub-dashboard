@@ -239,7 +239,11 @@ Open [http://localhost:3000](http://localhost:3000) — you'll be redirected to
     later months, a 12-month trend with money received (non-deposit totals of
     invoices paid that month — close to, not identical with, Cash-in), per
     site, and lines that don't fit the rules (rent without a period, `qty` ≠
-    months of the period, unclassified).
+    months of the period, unclassified) — counted, and listed with invoice
+    number, site, description, type, period (last day, as Storeganise shows
+    it), qty and the amount landing in the month, to look up in Storeganise.
+    Only those lines keep their detail (`revenue_lines.detail`); invoices with
+    such lines synced before it existed are fetched once more.
   - **Proyeksi saat tutup buku** (`src/lib/revenueProjection.ts`): the
     month's accrual revenue as it will stand at finance's closing (paid by
     the 5th of the next month), for all sites and only while the month is

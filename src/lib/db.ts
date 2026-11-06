@@ -283,6 +283,11 @@ async function createSchema(): Promise<void> {
       -- When the invoice was issued, for the month-end projection. Rows
       -- synced before this column existed are re-fetched by the next sync.
       ALTER TABLE revenue_invoices ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ;
+      -- For the data-quality list: the invoice number to search Storeganise
+      -- by, and what a line that doesn't fit the rules says (description,
+      -- period, qty, total) — kept only for those lines.
+      ALTER TABLE revenue_invoices ADD COLUMN IF NOT EXISTS sid TEXT;
+      ALTER TABLE revenue_lines ADD COLUMN IF NOT EXISTS detail JSONB;
       CREATE TABLE IF NOT EXISTS revenue_sync (
         id          INTEGER PRIMARY KEY CHECK (id = 1),
         last_run    TIMESTAMPTZ,

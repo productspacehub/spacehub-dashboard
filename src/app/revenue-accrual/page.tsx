@@ -7,7 +7,7 @@ import { signOut, useSession } from "next-auth/react";
 import { DeltaBadge } from "@/components/DeltaBadge";
 import { formatIdr } from "@/components/CashinDailyChart";
 import { REVENUE_COLORS, REVENUE_LABELS, REVENUE_ORDER as ORDER } from "@/components/revenueStyle";
-import type { RevenueProjection, RevenueReport } from "@/lib/revenueAccrual";
+import type { FlaggedKind, FlaggedLine, RevenueProjection, RevenueReport } from "@/lib/revenueAccrual";
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "Mei", "Jun", "Jul", "Agu", "Sep", "Okt", "Nov", "Des"];
 const LONG = ["Januari", "Februari", "Maret", "April", "Mei", "Juni", "Juli", "Agustus", "September", "Oktober", "November", "Desember"];
@@ -167,6 +167,92 @@ function TrendChart({ trend, selected, onPick }: { trend: RevenueReport["trend"]
           <br />
           <span style={{ color: "var(--text-secondary)" }}>Uang masuk {formatIdr(h.cash)}</span>
         </div>
+      )}
+    </div>
+  );
+}
+
+const FLAG_LABELS: Record<FlaggedKind, string> = {
+  rent_no_period: "Sewa tanpa periode",
+  qty_mismatch: "Qty ≠ jumlah bulan",
+  unclassified: "Tidak terklasifikasi",
+};
+const FLAG_ORDER: FlaggedKind[] = ["rent_no_period", "qty_mismatch", "unclassified"];
+
+const shortDate = (d: string) => `${Number(d.slice(8, 10))} ${MONTHS[Number(d.slice(5, 7)) - 1]} ${d.slice(2, 4)}`;
+// The API's end date is the day after the period (end exclusive); Storeganise's
+// own invoice shows the last day, so show that.
+const lastDayOf = (endExclusive: string) =>
+  new Date(Date.UTC(+endExclusive.slice(0, 4), +endExclusive.slice(5, 7) - 1, +endExclusive.slice(8, 10)) - 86_400_000).toISOString().slice(0, 10);
+
+// The invoice lines behind the data-quality counts, by kind, to look up in
+// Storeganise by invoice number.
+function FlaggedLines({ lines, counts }: { lines: FlaggedLine[]; counts: Record<FlaggedKind, number> }) {
+  const kinds = FLAG_ORDER.filter((k) => counts[k] > 0);
+  const [picked, setPicked] = useState<FlaggedKind | null>(null);
+  const kind = picked && kinds.includes(picked) ? picked : (kinds[0] ?? null);
+  if (!kind) return null;
+  const shown = lines.filter((l) => l.kind === kind);
+  return (
+    <div className="mt-5">
+      <p className="mb-1 text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
+        Baris yang perlu dicek
+      </p>
+      <p className="mb-3 text-xs leading-relaxed" style={{ color: "var(--text-muted)" }}>
+        Cari di Storeganise lewat nomor invoice. &quot;Masuk bulan ini&quot; = bagian baris itu yang dihitung di bulan ini.
+      </p>
+      <div className="mb-3 flex flex-wrap gap-2">
+        {kinds.map((k) => (
+          <button
+            key={k}
+            onClick={() => setPicked(k)}
+            className="rounded-full px-3 py-1.5 text-xs font-medium"
+            style={{
+              background: k === kind ? "var(--series-1)" : "transparent",
+              color: k === kind ? "var(--background)" : "var(--text-secondary)",
+              border: k === kind ? "none" : "1px solid var(--gridline)",
+            }}
+          >
+            {FLAG_LABELS[k]} ({counts[k]})
+          </button>
+        ))}
+      </div>
+      <div className="max-h-96 overflow-auto rounded-lg border" style={{ borderColor: "var(--gridline)" }}>
+        <table className="w-full text-left text-xs tabular-nums">
+          <thead className="sticky top-0" style={{ background: "var(--surface-1)" }}>
+            <tr className="text-[11px] tracking-wide uppercase" style={{ color: "var(--text-muted)" }}>
+              <th className="px-3 py-2 font-bold">Invoice</th>
+              <th className="px-3 py-2 font-bold">Site</th>
+              <th className="px-3 py-2 font-bold">Deskripsi</th>
+              <th className="px-3 py-2 font-bold">Periode</th>
+              <th className="px-3 py-2 text-right font-bold">Qty</th>
+              <th className="px-3 py-2 text-right font-bold whitespace-nowrap">Masuk bulan ini</th>
+            </tr>
+          </thead>
+          <tbody>
+            {shown.map((l, i) => (
+              <tr key={i} style={{ borderTop: "1px solid var(--gridline)", color: "var(--text-primary)" }}>
+                <td className="px-3 py-2 font-mono whitespace-nowrap">{l.invoiceSid ? `#${l.invoiceSid.toUpperCase()}` : "–"}</td>
+                <td className="px-3 py-2 whitespace-nowrap">{l.siteName}</td>
+                <td className="px-3 py-2" style={{ color: "var(--text-secondary)" }}>
+                  {l.detail ? l.detail.desc || <i>(kosong)</i> : <i>menunggu sinkronisasi</i>}
+                  {l.detail?.type ? <span style={{ color: "var(--text-muted)" }}> · {l.detail.type}</span> : null}
+                </td>
+                <td className="px-3 py-2 whitespace-nowrap">
+                  {l.detail?.date ? shortDate(l.detail.date) : "–"}
+                  {l.detail?.endDate ? ` – ${shortDate(lastDayOf(l.detail.endDate))}` : ""}
+                </td>
+                <td className="px-3 py-2 text-right">{l.detail?.qty ?? "–"}</td>
+                <td className="px-3 py-2 text-right whitespace-nowrap">{formatIdr(l.amount)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {shown.length < counts[kind] && (
+        <p className="mt-2 text-xs" style={{ color: "var(--text-muted)" }}>
+          Menampilkan {shown.length} dari {counts[kind]} baris (nilai terbesar dulu).
+        </p>
       )}
     </div>
   );
@@ -651,6 +737,14 @@ export default function RevenueAccrualPage() {
                   note="bukan sewa, late fee, barang, atau deposit — tetap dihitung revenue"
                 />
               </div>
+              <FlaggedLines
+                lines={data.checks.lines}
+                counts={{
+                  rent_no_period: data.checks.rentNoPeriod,
+                  qty_mismatch: data.checks.qtyMismatch,
+                  unclassified: data.checks.unclassified.lines,
+                }}
+              />
               <p className="mt-4 text-xs" style={{ color: data.sync.lastError ? "var(--status-critical)" : "var(--text-muted)" }}>
                 {data.sync.lastRun
                   ? `Sinkronisasi terakhir ${new Date(data.sync.lastRun).toLocaleString("id-ID")} · ${data.sync.invoices.toLocaleString()} invoice tersimpan.`

@@ -41,6 +41,7 @@ export type InvoiceLine = {
 
 export type AccrualInvoice = {
   id: string;
+  sid?: string;
   siteId: string;
   state: string;
   created: string;
@@ -49,7 +50,19 @@ export type AccrualInvoice = {
   entries?: InvoiceLine[];
 };
 
-export type Allocation = { line: number; part: number; month: string; category: RevenueCategory; amount: number; flag: LineFlag | null };
+// What the data-quality list shows for a line that doesn't fit the rules,
+// so it can be found and checked in Storeganise. Kept only for those lines.
+export type LineDetail = { desc: string; type: string; date: string | null; endDate: string | null; qty: number | null; total: number };
+
+export type Allocation = {
+  line: number;
+  part: number;
+  month: string;
+  category: RevenueCategory;
+  amount: number;
+  flag: LineFlag | null;
+  detail?: LineDetail;
+};
 
 const jakartaMonthOf = (iso: string) => new Date(iso).toLocaleDateString("en-CA", { timeZone: "Asia/Jakarta" }).slice(0, 7);
 
@@ -73,6 +86,14 @@ export function allocateInvoice(inv: AccrualInvoice): { allocations: Allocation[
     const total = Number(e.total ?? 0);
     cashAmount += total;
     const kind = classifyDescription(e.desc);
+    const detail: LineDetail = {
+      desc: e.desc ?? "",
+      type: e.type ?? "",
+      date: e.date?.slice(0, 10) ?? null,
+      endDate: e.endDate?.slice(0, 10) ?? null,
+      qty: e.qty ?? null,
+      total,
+    };
 
     if (e.date && e.endDate) {
       const qty = Number(e.qty);
@@ -88,6 +109,7 @@ export function allocateInvoice(inv: AccrualInvoice): { allocations: Allocation[
           category: "rent",
           amount: part === parts - 1 ? total - each * (parts - 1) : each,
           flag,
+          ...(flag ? { detail } : {}),
         });
       }
       return;
@@ -98,10 +120,18 @@ export function allocateInvoice(inv: AccrualInvoice): { allocations: Allocation[
     }
     if (kind === "rent" || e.type === "prepayment") {
       // Rent with no period to place it: its own date if any, else the invoice's month.
-      allocations.push({ line, part: 0, month: e.date ? e.date.slice(0, 7) : createdMonth, category: "rent", amount: total, flag: "rent_no_period" });
+      allocations.push({
+        line,
+        part: 0,
+        month: e.date ? e.date.slice(0, 7) : createdMonth,
+        category: "rent",
+        amount: total,
+        flag: "rent_no_period",
+        detail,
+      });
       return;
     }
-    allocations.push({ line, part: 0, month: createdMonth, category: "unclassified", amount: total, flag: null });
+    allocations.push({ line, part: 0, month: createdMonth, category: "unclassified", amount: total, flag: null, detail });
   });
   return { allocations, cashAmount };
 }
@@ -126,14 +156,19 @@ export async function syncRevenue(timeBudgetMs = 40_000): Promise<SyncResult> {
   const from = `${addMonths(jakartaToday().slice(0, 7), -SYNC_MONTHS)}-01`;
   try {
     const listed = await paginate<AccrualInvoice>(`/v1/admin/invoices?start=${from}`);
-    // Rows synced before created_at was stored count as changed, so they're
-    // fetched once more (the projection needs to know when each was issued).
+    // Rows synced before a column existed count as changed, so they're
+    // fetched once more: created_at (for the projection), and the detail of
+    // lines that don't fit the rules (for the data-quality list).
     const stored = new Map(
       (
-        await query<{ invoice_id: string; version: string; has_created: boolean }>(
-          "SELECT invoice_id, version, created_at IS NOT NULL AS has_created FROM revenue_invoices"
+        await query<{ invoice_id: string; version: string; complete: boolean }>(
+          `SELECT i.invoice_id, i.version, i.created_at IS NOT NULL AND NOT EXISTS (
+             SELECT 1 FROM revenue_lines l WHERE l.invoice_id = i.invoice_id
+               AND (l.flag IS NOT NULL OR l.category = 'unclassified') AND l.detail IS NULL
+           ) AS complete
+           FROM revenue_invoices i`
         )
-      ).map((r) => [r.invoice_id, r.has_created ? r.version : ""])
+      ).map((r) => [r.invoice_id, r.complete ? r.version : ""])
     );
     const changed = listed.filter((i) => stored.get(i.id) !== versionOf(i));
 
@@ -168,25 +203,29 @@ async function saveInvoices(invoices: AccrualInvoice[]): Promise<void> {
   for (const inv of invoices) {
     const { allocations, cashAmount } = allocateInvoice(inv);
     const paidDate = inv.state === "paid" ? (inv.paid ?? inv.updated ?? inv.created).slice(0, 10) : null;
-    invRows.push([inv.id, inv.siteId ?? "", inv.state, versionOf(inv), paidDate, cashAmount, inv.created]);
-    for (const a of allocations) lineRows.push([inv.id, a.line, a.part, a.month, a.category, a.amount, a.flag]);
+    invRows.push([inv.id, inv.siteId ?? "", inv.state, versionOf(inv), paidDate, cashAmount, inv.created, inv.sid ?? null]);
+    for (const a of allocations) {
+      lineRows.push([inv.id, a.line, a.part, a.month, a.category, a.amount, a.flag, a.detail ? JSON.stringify(a.detail) : null]);
+    }
   }
   await transaction(async (q) => {
     // One writer at a time (cron and a page-triggered sync can overlap).
     await q("SELECT pg_advisory_xact_lock($1)", [SYNC_LOCK_ID]);
     await q("DELETE FROM revenue_lines WHERE invoice_id = ANY($1)", [invoices.map((i) => i.id)]);
     await q(
-      `INSERT INTO revenue_invoices (invoice_id, site_id, state, version, paid_date, cash_amount, created_at)
-       SELECT * FROM UNNEST($1::text[], $2::text[], $3::text[], $4::text[], $5::date[], $6::numeric[], $7::timestamptz[])
+      `INSERT INTO revenue_invoices (invoice_id, site_id, state, version, paid_date, cash_amount, created_at, sid)
+       SELECT * FROM UNNEST($1::text[], $2::text[], $3::text[], $4::text[], $5::date[], $6::numeric[], $7::timestamptz[], $8::text[])
        ON CONFLICT (invoice_id) DO UPDATE SET site_id = EXCLUDED.site_id, state = EXCLUDED.state, version = EXCLUDED.version,
-         paid_date = EXCLUDED.paid_date, cash_amount = EXCLUDED.cash_amount, created_at = EXCLUDED.created_at, synced_at = now()`,
-      columns(invRows, 7)
+         paid_date = EXCLUDED.paid_date, cash_amount = EXCLUDED.cash_amount, created_at = EXCLUDED.created_at, sid = EXCLUDED.sid,
+         synced_at = now()`,
+      columns(invRows, 8)
     );
     if (lineRows.length > 0) {
       await q(
-        `INSERT INTO revenue_lines (invoice_id, line, part, month, category, amount, flag)
-         SELECT * FROM UNNEST($1::text[], $2::int[], $3::int[], $4::text[], $5::text[], $6::numeric[], $7::text[])`,
-        columns(lineRows, 7)
+        `INSERT INTO revenue_lines (invoice_id, line, part, month, category, amount, flag, detail)
+         SELECT i, l, p, m, c, a, f, d::jsonb
+         FROM UNNEST($1::text[], $2::int[], $3::int[], $4::text[], $5::text[], $6::numeric[], $7::text[], $8::text[]) AS t(i, l, p, m, c, a, f, d)`,
+        columns(lineRows, 8)
       );
     }
   });
@@ -202,6 +241,16 @@ function columns(rows: unknown[], n: number): unknown[][] {
 // Invoice states that will never be paid — left out of "not paid yet".
 const DEAD_STATES = /(cancel|void|draft|writ)/i;
 const DEAD_STATES_SQL = "(cancel|void|draft|writ)";
+
+export type FlaggedKind = LineFlag | "unclassified";
+export type FlaggedLine = {
+  kind: FlaggedKind;
+  invoiceSid: string | null;
+  siteName: string;
+  amount: number; // what lands in this month
+  detail: LineDetail | null; // null until the invoice is synced again
+};
+const FLAGGED_LIMIT = 300;
 
 export type RevenueProjection = ProjectionResult & { asOf: string; closingDate: string; day: number };
 
@@ -258,7 +307,13 @@ export type RevenueReport = {
   deferred: number;
   trend: { month: string; totals: CategoryTotals; total: number; cash: number }[];
   bySite: { siteId: string; siteName: string; totals: CategoryTotals; total: number; comparison: number }[];
-  checks: { qtyMismatch: number; rentNoPeriod: number; unclassified: { lines: number; amount: number } };
+  checks: {
+    qtyMismatch: number;
+    rentNoPeriod: number;
+    unclassified: { lines: number; amount: number };
+    // The lines behind those counts (capped), to look up by invoice number.
+    lines: FlaggedLine[];
+  };
   sync: { lastRun: string | null; listed: number; pending: number; lastError: string | null; invoices: number };
   // Only for all sites and a month not yet closed; null with a reason otherwise.
   projection: RevenueProjection | null;
@@ -300,7 +355,7 @@ export async function getRevenueReport(monthParam: string, site: string): Promis
   const paidLines = `FROM revenue_lines l JOIN revenue_invoices i USING (invoice_id)
     WHERE i.paid_date IS NOT NULL AND ($1::text IS NULL OR i.site_id = $1)`;
 
-  const [monthRows, compRows, trendRows, cashRows, siteRows, siteCompRows, unpaidRows, deferredRows, flagRows, syncRows, sites] =
+  const [monthRows, compRows, trendRows, cashRows, siteRows, siteCompRows, unpaidRows, deferredRows, flagRows, syncRows, sites, flaggedRows] =
     await Promise.all([
       query<Row>(`SELECT l.category, SUM(l.amount) AS amount ${paidLines} AND l.month = $2 GROUP BY l.category`, [siteFilter, month]),
       query<Row>(
@@ -346,6 +401,12 @@ export async function getRevenueReport(monthParam: string, site: string): Promis
          FROM (SELECT 1) x LEFT JOIN revenue_sync s ON s.id = 1`
       ),
       fetchSites(),
+      query<{ flag: LineFlag | null; category: RevenueCategory; sid: string | null; site_id: string; amount: string; detail: LineDetail | null }>(
+        `SELECT l.flag, l.category, i.sid, i.site_id, l.amount, l.detail ${paidLines} AND l.month = $2
+           AND (l.flag IS NOT NULL OR l.category = 'unclassified')
+         ORDER BY l.amount DESC LIMIT ${FLAGGED_LIMIT}`,
+        [siteFilter, month]
+      ),
     ]);
 
   const totals = toTotals(monthRows);
@@ -392,6 +453,13 @@ export async function getRevenueReport(monthParam: string, site: string): Promis
         lines: flagRows.filter((r) => r.category === "unclassified").reduce((s, r) => s + Number(r.lines), 0),
         amount: flagRows.filter((r) => r.category === "unclassified").reduce((s, r) => s + Number(r.amount), 0),
       },
+      lines: flaggedRows.map((r) => ({
+        kind: r.flag ?? "unclassified",
+        invoiceSid: r.sid,
+        siteName: siteName.get(r.site_id) ?? r.site_id,
+        amount: Number(r.amount),
+        detail: r.detail,
+      })),
     },
     sync: {
       lastRun: sync?.last_run ? new Date(sync.last_run).toISOString() : null,
