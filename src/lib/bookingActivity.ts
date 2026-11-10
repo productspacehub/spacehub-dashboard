@@ -1,4 +1,4 @@
-import { ensureSchema, query } from "./db";
+import { query } from "./db";
 import { MODULE_LABELS, MODULE_TYPES, type ModuleType } from "./bookingConstants";
 
 export type BookingModuleTotals = Record<ModuleType, number>;
@@ -60,7 +60,6 @@ type ReportRow = {
 // necessarily the day it was actually paid, if those differ. See the
 // methodology note on /booking-activity.
 export async function getBookingActivityReport(start: string, end: string): Promise<BookingActivityReport> {
-  await ensureSchema();
 
   const rows = await query<ReportRow>(
     `SELECT

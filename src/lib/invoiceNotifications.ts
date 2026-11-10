@@ -1,6 +1,6 @@
 import { fetchInvoiceById, fetchInvoiceActions } from "@/lib/storeganise";
 import { sendSlackMessage } from "@/lib/slack";
-import { ensureSchema, isInvoiceNotified, recordInvoiceNotified } from "@/lib/db";
+import { isInvoiceNotified, recordInvoiceNotified } from "@/lib/db";
 
 // invoice.paid (and payments[].date/created) were found to be date-only with no
 // time-of-day for manually-entered payments — always midnight UTC regardless of the
@@ -35,7 +35,6 @@ function formatPaidAt(paidIso: string): string {
 // notified by one path is never notified again by the other. Returns whether a
 // notification was actually sent (false if already notified, or not actually paid).
 export async function notifyIfNewlyPaid(invoiceId: string): Promise<boolean> {
-  await ensureSchema();
   if (await isInvoiceNotified(invoiceId)) return false;
 
   const invoice = await fetchInvoiceById(invoiceId);

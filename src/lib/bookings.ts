@@ -1,4 +1,4 @@
-import { ensureSchema, query } from "./db";
+import { query } from "./db";
 import { jakartaToday, jakartaNowTime } from "./snapshots";
 import { MODULE_CONFIG, type BookingSource, type BookingStatus, type ModuleType, type PaymentStatus } from "./bookingConstants";
 
@@ -115,7 +115,6 @@ function emptyCounts(): BookingCounts {
 // --- Customers ---------------------------------------------------------
 
 export async function searchCustomers(q: string): Promise<Customer[]> {
-  await ensureSchema();
   const term = q.trim();
   if (!term) {
     const rows = await query<CustomerRow>(
@@ -133,7 +132,6 @@ export async function searchCustomers(q: string): Promise<Customer[]> {
 }
 
 export async function createCustomer(input: CustomerInput): Promise<Customer> {
-  await ensureSchema();
   const rows = await query<CustomerRow>(
     `INSERT INTO customers (name, phone, email, id_number, notes)
      VALUES ($1, $2, $3, $4, $5)
@@ -151,7 +149,6 @@ function mapCustomer(row: CustomerRow): Customer {
 // --- Rate packages (admin-editable, §5.2) -------------------------------
 
 export async function getRatePackages(moduleType: ModuleType): Promise<RatePackage[]> {
-  await ensureSchema();
   const rows = await query<{ id: number; package_name: string; price: string; resource_id: number | null; resource_name: string | null }>(
     `SELECT rp.id, rp.package_name, rp.price, rp.resource_id, res.name AS resource_name
      FROM rate_packages rp
@@ -180,7 +177,6 @@ export async function setRatePackages(
   packages: { packageName: string; price: number; resourceId?: number | null }[],
   moduleType: ModuleType
 ): Promise<RatePackage[]> {
-  await ensureSchema();
   const kept: { name: string; resourceId: number | null }[] = [];
   for (const pkg of packages) {
     const name = pkg.packageName.trim();
@@ -219,7 +215,6 @@ export async function setRatePackages(
 // what an already-made booking shows.
 
 export async function getAddons(moduleType: ModuleType): Promise<Addon[]> {
-  await ensureSchema();
   const rows = await query<{ id: number; name: string; price: string }>(
     `SELECT id, name, price FROM addons WHERE module_type = $1 ORDER BY name ASC`,
     [moduleType]
@@ -228,7 +223,6 @@ export async function getAddons(moduleType: ModuleType): Promise<Addon[]> {
 }
 
 export async function setAddons(addons: { name: string; price: number }[], moduleType: ModuleType): Promise<Addon[]> {
-  await ensureSchema();
   const names = addons.map((a) => a.name.trim()).filter(Boolean);
   for (const addon of addons) {
     const name = addon.name.trim();
@@ -302,20 +296,17 @@ async function containerRows(where: string, params: unknown[]): Promise<Containe
 }
 
 export async function listContainers(q?: string): Promise<ContainerRow[]> {
-  await ensureSchema();
   const term = q?.trim();
   if (!term) return containerRows("", []);
   return containerRows("WHERE c.label ILIKE $1", [`%${term}%`]);
 }
 
 export async function getFreeContainers(): Promise<ContainerRow[]> {
-  await ensureSchema();
   const rows = await containerRows("", []);
   return rows.filter((r) => r.status === "Free");
 }
 
 export async function createContainer(label: string): Promise<ContainerRow> {
-  await ensureSchema();
   const trimmed = label.trim();
   if (!trimmed) throw new Error("Container ID wajib diisi");
   await query(`INSERT INTO containers (label) VALUES ($1)`, [trimmed]);
@@ -330,7 +321,6 @@ export async function createContainer(label: string): Promise<ContainerRow> {
 // booking references this container, past and future, with nothing else to
 // update.
 export async function updateContainer(id: number, label: string): Promise<ContainerRow> {
-  await ensureSchema();
   const trimmed = label.trim();
   if (!trimmed) throw new Error("Container ID wajib diisi");
   const rows = await query<{ id: number }>(`UPDATE containers SET label = $1 WHERE id = $2 RETURNING id`, [trimmed, id]);
@@ -342,12 +332,10 @@ export async function updateContainer(id: number, label: string): Promise<Contai
 // --- Resources (meeting_room / studio — bookable rooms, §7.2) -------------
 
 export async function listResources(moduleType: ModuleType): Promise<ResourceRow[]> {
-  await ensureSchema();
   return query<ResourceRow>(`SELECT id, name FROM resources WHERE module_type = $1 ORDER BY name ASC`, [moduleType]);
 }
 
 export async function createResource(moduleType: ModuleType, name: string): Promise<ResourceRow> {
-  await ensureSchema();
   const trimmed = name.trim();
   if (!trimmed) throw new Error("Nama ruang wajib diisi");
   const rows = await query<ResourceRow>(`INSERT INTO resources (module_type, name) VALUES ($1, $2) RETURNING id, name`, [
@@ -380,7 +368,6 @@ export async function checkResourceConflict(
   endTime: string,
   excludeBookingId?: number
 ): Promise<boolean> {
-  await ensureSchema();
   const params: unknown[] = [resourceId, date, endTime, startTime];
   let sql = `SELECT 1 FROM bookings
              WHERE resource_id = $1 AND start_date = $2
@@ -401,7 +388,6 @@ export async function checkResourceConflict(
 // seat today). Informational only, per the module's spec — nothing here
 // blocks creating another booking even if this number looks "full".
 export async function getActiveHeadcountToday(moduleType: ModuleType): Promise<number> {
-  await ensureSchema();
   const rows = await query<{ count: string }>(
     `SELECT COUNT(*) AS count FROM bookings
      WHERE module_type = $1 AND status = 'Active'
@@ -510,7 +496,6 @@ export async function listBookings(filters: {
   status?: BookingStatus;
   q?: string;
 }): Promise<{ bookings: BookingListItem[]; counts: BookingCounts }> {
-  await ensureSchema();
   const today = jakartaToday();
 
   if (MODULE_CONFIG[filters.moduleType].usesTimeSlots) {
@@ -564,7 +549,6 @@ export async function listBookings(filters: {
 // Not module-scoped: booking ids are unique across the whole table, and the
 // detail page adapts its own rendering based on the returned moduleType.
 export async function getBooking(id: number): Promise<BookingDetail | null> {
-  await ensureSchema();
   const rows = await query<
     ListRow & {
       container_id: number | null;
@@ -629,7 +613,6 @@ export type CreateBookingInput = {
 };
 
 export async function createBooking(input: CreateBookingInput): Promise<BookingDetail> {
-  await ensureSchema();
   if (!input.customerId && !input.newCustomer) {
     throw new Error("Pilih customer yang sudah ada atau isi data customer baru");
   }
@@ -707,7 +690,6 @@ export type UpdateBookingInput = {
 //   Assigned to another Active booking — only checked for modules that use
 //   containers at all.
 export async function updateBooking(id: number, patch: UpdateBookingInput): Promise<BookingDetail> {
-  await ensureSchema();
   const existing = await getBooking(id);
   if (!existing) throw new Error("Booking tidak ditemukan");
   const config = MODULE_CONFIG[existing.moduleType];

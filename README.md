@@ -455,7 +455,7 @@ Open [http://localhost:3000](http://localhost:3000) — you'll be redirected to
   `/bookings` is where staff actually create and manage bookings. Unlike the
   modules above, it isn't read from Storeganise at all: it's this app's own
   Postgres-backed system of record (`src/lib/bookings.ts`, schema in
-  `src/lib/db.ts`'s `ensureSchema`), since shared storage/co-working/
+  `migrations/` — see "Database migrations" below), since shared storage/co-working/
   meeting-room/studio bookings are a separate business line with no
   Storeganise equivalent. The data model is intentionally module-agnostic (a
   `module_type` column on the shared tables — all four modules,
@@ -719,6 +719,51 @@ second Neon database, `spacehub-booking-staging`, for that:
 Historical comparisons only go back as far as the cron has been running —
 "vs yesterday" won't show a value until the day after this feature is live,
 and "30 hari lalu" needs a month of accumulated snapshots.
+
+### Database migrations
+
+The app never creates or alters tables itself. The schema lives in
+`migrations/` as numbered SQL files (`0001_baseline.sql`, `0002_...sql`, …),
+and `scripts/migrate.mjs` applies the ones a database hasn't run yet, in
+order, each in its own transaction, recording them in a `schema_migrations`
+table.
+
+- **On deploy:** `npm run build` runs `node scripts/migrate.mjs && next build`,
+  so every Vercel build migrates its own database first — Preview builds the
+  staging database (`BOOKING_STAGING_DATABASE_URL`), Production builds the
+  production one (`DATABASE_URL`). If a migration fails, it's rolled back and
+  the build fails, so the previous deployment stays live and nothing is
+  half-applied. A Vercel build with no database URL fails rather than
+  deploying unmigrated. When the Neon integration also provides the direct
+  (non-pooled) URL — `DATABASE_URL_UNPOOLED` / `BOOKING_STAGING_DATABASE_URL_UNPOOLED`
+  — the runner uses it; the build log says which variable it used.
+- **By hand:** `npm run migrate` applies pending migrations to whatever
+  database `.env.local` / the environment points at; `npm run migrate -- --status`
+  lists applied and pending files without changing anything.
+- `0001_baseline.sql` is the schema exactly as the app used to create it at
+  start-up, written idempotently (`IF NOT EXISTS`), so on a database that
+  already had it, it changes nothing and is just recorded as applied.
+
+To change the schema:
+
+1. Add a new file with the next number, e.g. `migrations/0002_add_booking_notes.sql`
+   (lowercase letters, digits and underscores only).
+2. Test it locally (`npm run migrate` against a local Postgres), then push a
+   branch: its Preview deployment applies it to the staging database. Check
+   the build log for `[migrate] Applied 0002_...`.
+3. Merge to Production only after the preview checks out. Take a Neon backup
+   (or branch) of the production database first for anything non-trivial.
+
+Rules:
+
+- **Never edit a migration that has already run anywhere** — the runner
+  stores each file's checksum and fails the build if an applied file
+  changed. Put the change in a new file instead.
+- **Only add, never remove, in the same deploy.** Migrations run while the
+  previous code is still serving traffic, so a migration should add tables,
+  nullable or defaulted columns, and indexes. Dropping or renaming something
+  goes in a later migration, once no deployed code uses it.
+- Two builds never migrate at the same time (a Postgres advisory lock).
 
 ## Known assumption to verify
 

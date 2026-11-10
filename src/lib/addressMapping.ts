@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { matchAddress, type AddressLevel, type AddressMatch } from "./addressMatch";
-import { ensureSchema, query } from "./db";
+import { query } from "./db";
 import { normalize } from "./normalize";
 import { loadRegionIndex, regencyLabel, shortProvince, shortRegency, type RegionIndex } from "./regions";
 import { countryName, isCountry, searchCountries } from "./countries";
@@ -148,7 +148,6 @@ type OverrideRow = {
 type RuleRow = { id: number; phrase: string; target_kind: TargetKind; target_code: string | null; created_by: string; created_at: string };
 
 export async function loadMappings(): Promise<Mappings> {
-  await ensureSchema();
   const [overrides, rules] = await Promise.all([
     query<OverrideRow>("SELECT address_hash, target_kind, target_code, created_by, created_at, import_batch FROM address_overrides"),
     query<RuleRow>("SELECT id, phrase, target_kind, target_code, created_by, created_at FROM address_rules ORDER BY phrase"),
@@ -178,7 +177,6 @@ export async function loadMappings(): Promise<Mappings> {
 }
 
 export async function setOverride(hash: string, target: MappingTarget, by: string): Promise<void> {
-  await ensureSchema();
   await query(
     `INSERT INTO address_overrides (address_hash, target_kind, target_code, created_by)
      VALUES ($1, $2, $3, $4)
@@ -192,7 +190,6 @@ export async function setOverride(hash: string, target: MappingTarget, by: strin
 // an earlier import): the caller only sends addresses still in the queue, and
 // ON CONFLICT covers a mapping saved in the meantime.
 export async function applyImport(items: { hash: string; target: MappingTarget }[], by: string): Promise<{ batch: string; inserted: number }> {
-  await ensureSchema();
   const batch = randomUUID();
   if (items.length === 0) return { batch, inserted: 0 };
   const params: unknown[] = [by, batch];
@@ -214,12 +211,10 @@ export async function applyImport(items: { hash: string; target: MappingTarget }
 // Removes only what is still from that batch — an address re-mapped by hand
 // since then keeps the manual mapping.
 export async function deleteImportBatch(batch: string): Promise<number> {
-  await ensureSchema();
   return (await query("DELETE FROM address_overrides WHERE import_batch = $1 RETURNING address_hash", [batch])).length;
 }
 
 export async function deleteOverride(hash: string): Promise<boolean> {
-  await ensureSchema();
   return (await query("DELETE FROM address_overrides WHERE address_hash = $1 RETURNING address_hash", [hash])).length > 0;
 }
 
@@ -231,7 +226,6 @@ export async function addRule(
   by: string,
   index: RegionIndex
 ): Promise<{ ok: true } | { conflict: string }> {
-  await ensureSchema();
   const inserted = await query(
     `INSERT INTO address_rules (phrase, target_kind, target_code, created_by)
      VALUES ($1, $2, $3, $4)
@@ -250,7 +244,6 @@ export async function addRule(
 }
 
 export async function deleteRule(id: number): Promise<boolean> {
-  await ensureSchema();
   return (await query("DELETE FROM address_rules WHERE id = $1 RETURNING id", [id])).length > 0;
 }
 

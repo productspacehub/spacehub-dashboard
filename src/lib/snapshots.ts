@@ -1,4 +1,4 @@
-import { ensureSchema, query } from "./db";
+import { query } from "./db";
 import type { OccupancySnapshot, SiteOccupancy, StatusBreakdown, UnitsDetail } from "./storeganise";
 
 export type SnapshotRow = {
@@ -40,7 +40,6 @@ export function jakartaDaysAgo(days: number): string {
 }
 
 export async function getSnapshotByDate(date: string): Promise<SnapshotRow[]> {
-  await ensureSchema();
   return query<SnapshotRow>(
     `SELECT to_char(snapshot_date, 'YYYY-MM-DD') AS snapshot_date, site_id, site_name, total_units,
             occupied_units, available_units, reserved_units, blocked_units
@@ -51,7 +50,6 @@ export async function getSnapshotByDate(date: string): Promise<SnapshotRow[]> {
 }
 
 export async function getTrend(days: number): Promise<TrendPoint[]> {
-  await ensureSchema();
   const since = jakartaDaysAgo(days);
   // pg parses a bare `date` column into a JS Date (midnight UTC), which then
   // serializes with a time component and can shift a day in a non-UTC viewer

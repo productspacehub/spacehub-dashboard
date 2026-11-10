@@ -1,5 +1,5 @@
 import { classifyDescription, isDepositEntry } from "./cashin";
-import { ensureSchema, query, transaction } from "./db";
+import { query, transaction } from "./db";
 import {
   addDays,
   addMonths,
@@ -180,7 +180,6 @@ const versionOf = (i: AccrualInvoice) => `${i.state}|${i.updated ?? ""}|${i.paid
 export type SyncResult = { listed: number; changed: number; processed: number; pending: number };
 
 export async function syncRevenue(timeBudgetMs = 40_000): Promise<SyncResult> {
-  await ensureSchema();
   const started = Date.now();
   const from = `${addMonths(jakartaToday().slice(0, 7), -SYNC_MONTHS)}-01`;
   try {
@@ -370,7 +369,6 @@ function toTotals(rows: Row[]): CategoryTotals {
 }
 
 export async function getRevenueReport(monthParam: string, site: string): Promise<RevenueReport> {
-  await ensureSchema();
   const today = jakartaToday();
   const current = today.slice(0, 7);
   const month = /^\d{4}-\d{2}$/.test(monthParam) && monthParam <= current ? monthParam : monthParam === "last" ? addMonths(current, -1) : current;

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getOccupancySnapshot } from "@/lib/storeganise";
-import { ensureSchema, query } from "@/lib/db";
+import { query } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
 
@@ -22,7 +22,6 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    await ensureSchema();
     const snapshot = await getOccupancySnapshot();
     const date = todayInJakarta();
 
