@@ -3,7 +3,9 @@ import { getUnitsDetail, type StatusBreakdown } from "@/lib/storeganise";
 import {
   getSnapshotByDate,
   getTrend,
+  isDateString,
   resolveCompareDate,
+  trendStart,
   type StatusBreakdownWithDelta,
   type TrendPoint,
   type UnitsDetailWithComparison,
@@ -30,7 +32,7 @@ export async function GET(request: NextRequest) {
     let trend: TrendPoint[] = [];
 
     try {
-      const [compareRows, trendPoints] = await Promise.all([getSnapshotByDate(resolvedDate), getTrend(30)]);
+      const [compareRows, trendPoints] = await Promise.all([isDateString(resolvedDate) ? getSnapshotByDate(resolvedDate) : Promise.resolve([]), getTrend(trendStart(resolvedDate))]);
       trend = trendPoints;
 
       if (compareRows.length > 0) {

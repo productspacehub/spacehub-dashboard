@@ -14,6 +14,21 @@ type TabState = StatusBreakdown["state"];
 
 type ComparePreset = "yesterday" | "7d" | "30d";
 
+const jakartaToday = () => new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Jakarta" });
+
+// "30 hari terakhir" for the default window; the actual range once the chart
+// has stretched back to an older comparison date.
+function trendRangeLabel(trend: { date: string }[]): string {
+  if (trend.length < 2) return "30 hari terakhir";
+  const first = trend[0].date;
+  const last = trend[trend.length - 1].date;
+  const days = (Date.parse(`${last}T00:00:00Z`) - Date.parse(`${first}T00:00:00Z`)) / 86_400_000;
+  if (days <= 31) return "30 hari terakhir";
+  const fmt = (d: string, withYear: boolean) =>
+    new Date(`${d}T00:00:00`).toLocaleDateString("id-ID", { day: "numeric", month: "short", ...(withYear ? { year: "numeric" } : {}) });
+  return `${fmt(first, first.slice(0, 4) !== last.slice(0, 4))} – ${fmt(last, true)}`;
+}
+
 const COMPARE_PRESET_LABELS: Record<ComparePreset, string> = {
   yesterday: "Kemarin",
   "7d": "7 hari lalu",
@@ -199,7 +214,7 @@ export default function OccupancyDetailPage() {
                 <input
                   type="date"
                   autoFocus
-                  max={new Date().toISOString().slice(0, 10)}
+                  max={jakartaToday()}
                   value={!(compareTo in COMPARE_PRESET_LABELS) ? compareTo : ""}
                   onChange={(e) => e.target.value && setCompareTo(e.target.value)}
                   className="rounded-full px-3 py-1.5 text-sm font-medium"
@@ -251,7 +266,7 @@ export default function OccupancyDetailPage() {
                     Tren unit occupied
                   </p>
                   <p className="text-xs" style={{ color: "var(--text-muted)" }}>
-                    30 hari terakhir
+                    {trendRangeLabel(detail.trend)}
                     {!detail.compareTo.available && " · belum ada data untuk titik pembanding ini"}
                   </p>
                 </div>

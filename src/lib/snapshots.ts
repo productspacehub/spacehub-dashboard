@@ -49,8 +49,23 @@ export async function getSnapshotByDate(date: string): Promise<SnapshotRow[]> {
   );
 }
 
-export async function getTrend(days: number): Promise<TrendPoint[]> {
-  const since = jakartaDaysAgo(days);
+// Default trend window; it stretches back further when the chosen comparison
+// date is older, so that date is always on the chart.
+export const TREND_DAYS = 30;
+
+// First day of the trend: TREND_DAYS ago, or the comparison date if earlier.
+export function trendStart(compareDate: string): string {
+  const defaultStart = jakartaDaysAgo(TREND_DAYS);
+  return isDateString(compareDate) && compareDate < defaultStart ? compareDate : defaultStart;
+}
+
+export function isDateString(value: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const d = new Date(`${value}T00:00:00Z`);
+  return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === value;
+}
+
+export async function getTrend(since: string): Promise<TrendPoint[]> {
   // pg parses a bare `date` column into a JS Date (midnight UTC), which then
   // serializes with a time component and can shift a day in a non-UTC viewer
   // timezone — cast to text so the API always returns a plain YYYY-MM-DD.
