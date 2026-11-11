@@ -47,6 +47,8 @@ export function TrendChart({
   formatValue = defaultFormat,
   formatTick = formatValue,
   unitSuffix = " unit",
+  compact = false,
+  domain,
 }: {
   points: TrendPoint[];
   highlightDate?: string;
@@ -55,6 +57,13 @@ export function TrendChart({
   formatTick?: (v: number) => string;
   // Appended to the value in the hover tooltip only.
   unitSuffix?: string;
+  // Small card version: shorter, no axis labels (the card states the range
+  // and values; hover still works). Its viewBox is close to a card's real
+  // width so dots stay round.
+  compact?: boolean;
+  // Date range of the x axis ("YYYY-MM-DD"), when it should be wider than the
+  // points — e.g. a location whose history starts later than the others.
+  domain?: { start: string; end: string };
 }) {
   const [hover, setHover] = useState<{ index: number; left: number } | null>(null);
 
@@ -71,11 +80,11 @@ export function TrendChart({
   // piece of text is a separately-positioned HTML element overlaid on top
   // (`xPct`/yFor below), because SVG <text> at a fixed font-size gets squashed
   // illegibly by that same non-uniform stretch on narrow screens.
-  const width = 860;
-  const height = 140;
-  const padTop = 16;
+  const width = compact ? 300 : 860;
+  const height = compact ? 84 : 140;
+  const padTop = compact ? 26 : 16;
   const padBottom = 8;
-  const padLeft = 30;
+  const padLeft = compact ? 4 : 30;
   const plotWidth = width - padLeft;
 
   const values = points.map((p) => p.value);
@@ -86,8 +95,9 @@ export function TrendChart({
   const max = rawMax + pad;
   const range = max - min || 1;
 
-  const firstDay = dayNumber(points[0].date);
-  const spanDays = Math.max(1, dayNumber(points[points.length - 1].date) - firstDay);
+  const firstDay = Math.min(dayNumber(points[0].date), domain ? dayNumber(domain.start) : Infinity);
+  const lastDay = Math.max(dayNumber(points[points.length - 1].date), domain ? dayNumber(domain.end) : -Infinity);
+  const spanDays = Math.max(1, lastDay - firstDay);
   const dayOffsets = points.map((p) => dayNumber(p.date) - firstDay);
   const xFor = (i: number) => padLeft + (dayOffsets[i] / spanDays) * plotWidth;
   // Show the year on the axis/tooltip once the range is long enough to be ambiguous.
@@ -134,7 +144,7 @@ export function TrendChart({
 
   return (
     <div
-      className="relative pb-5"
+      className={compact ? "relative" : "relative pb-5"}
       onMouseMove={handleMove}
       onMouseLeave={() => setHover(null)}
       style={{ touchAction: "none" }}
@@ -207,35 +217,40 @@ export function TrendChart({
       {/* Y-axis tick labels — anchored by their right edge at the same
           percent-of-width as the plot's left padding, so they never overlap
           the line regardless of the container's actual pixel width. */}
-      {ticks.map((t) => (
-        <span
-          key={t}
-          className="absolute text-[10px] whitespace-nowrap"
-          style={{
-            right: `calc(100% - ${(padLeft / width) * 100}% + 4px)`,
-            top: `${yFor(t)}px`,
-            transform: "translateY(-50%)",
-            color: "var(--text-muted)",
-          }}
-        >
-          {formatTick(t)}
-        </span>
-      ))}
+      {!compact &&
+        ticks.map((t) => (
+          <span
+            key={t}
+            className="absolute text-[10px] whitespace-nowrap"
+            style={{
+              right: `calc(100% - ${(padLeft / width) * 100}% + 4px)`,
+              top: `${yFor(t)}px`,
+              transform: "translateY(-50%)",
+              color: "var(--text-muted)",
+            }}
+          >
+            {formatTick(t)}
+          </span>
+        ))}
 
       {/* X-axis start/end date labels, under the plot so they never collide
           with the value labels above the line. */}
-      <span
-        className="absolute text-[10px] whitespace-nowrap"
-        style={{ left: `${xPct(0)}%`, top: `${height + 4}px`, color: "var(--text-muted)" }}
-      >
-        {formatDateLabel(points[0].date, withYear)}
-      </span>
-      <span
-        className="absolute text-[10px] whitespace-nowrap"
-        style={{ left: `${xPct(lastIndex)}%`, top: `${height + 4}px`, transform: "translateX(-100%)", color: "var(--text-muted)" }}
-      >
-        {formatDateLabel(points[lastIndex].date, withYear)}
-      </span>
+      {!compact && (
+        <>
+          <span
+            className="absolute text-[10px] whitespace-nowrap"
+            style={{ left: `${xPct(0)}%`, top: `${height + 4}px`, color: "var(--text-muted)" }}
+          >
+            {formatDateLabel(points[0].date, withYear)}
+          </span>
+          <span
+            className="absolute text-[10px] whitespace-nowrap"
+            style={{ left: `${xPct(lastIndex)}%`, top: `${height + 4}px`, transform: "translateX(-100%)", color: "var(--text-muted)" }}
+          >
+            {formatDateLabel(points[lastIndex].date, withYear)}
+          </span>
+        </>
+      )}
 
       {/* Direct value labels — endpoint and (if selected) the comparison point */}
       {showHighlight && (

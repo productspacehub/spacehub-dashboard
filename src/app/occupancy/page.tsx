@@ -5,7 +5,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { signOut, useSession } from "next-auth/react";
 import type { StatusBreakdown } from "@/lib/storeganise";
-import type { UnitsDetailWithComparison } from "@/lib/snapshots";
+import type { TrendPoint, UnitsDetailWithComparison } from "@/lib/snapshots";
 import { DeltaBadge } from "@/components/DeltaBadge";
 import { TrendChart } from "@/components/TrendChart";
 import { formatIdr } from "@/components/CashinDailyChart";
@@ -58,6 +58,20 @@ function formatPct(value: number): string {
 type TrendMode = "percent" | "units";
 const TREND_MODE_KEY = "occupancy.trendMode";
 const formatRate = (v: number) => `${v.toLocaleString("id-ID", { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%`;
+
+// Snapshot points as chart points for the chosen mode; the hover note carries
+// the other measure.
+function chartPoints(trend: TrendPoint[], mode: TrendMode) {
+  return trend
+    .filter((t) => mode === "units" || t.totalUnits > 0)
+    .map((t) => {
+      const rate = t.totalUnits > 0 ? (t.occupiedUnits / t.totalUnits) * 100 : 0;
+      const units = `${t.occupiedUnits.toLocaleString("id-ID")} dari ${t.totalUnits.toLocaleString("id-ID")} unit`;
+      return mode === "percent"
+        ? { date: t.date, value: rate, note: units }
+        : { date: t.date, value: t.occupiedUnits, note: `${formatRate(rate)} occupancy` };
+    });
+}
 
 function readTrendMode(): TrendMode {
   try {
@@ -140,6 +154,11 @@ export default function OccupancyDetailPage() {
     for (const b of detail.breakdown) counts[b.state] = b.count;
     return counts;
   }, [detail]);
+
+  const compareLabel =
+    compareTo in COMPARE_PRESET_LABELS
+      ? COMPARE_PRESET_LABELS[compareTo as ComparePreset].toLowerCase()
+      : (detail?.compareTo.resolvedDate ?? compareTo);
 
   const filteredUnits = useMemo(() => {
     if (!detail) return [];
@@ -310,11 +329,7 @@ export default function OccupancyDetailPage() {
                         : (detail.breakdown.find((b) => b.state === "occupied")?.delta ?? null)
                     }
                     format={trendMode === "percent" ? "points" : "integer"}
-                    label={`vs ${
-                      compareTo in COMPARE_PRESET_LABELS
-                        ? COMPARE_PRESET_LABELS[compareTo as ComparePreset].toLowerCase()
-                        : detail.compareTo.resolvedDate
-                    }`}
+                    label={`vs ${compareLabel}`}
                   />
                   <div
                     role="group"
@@ -340,21 +355,80 @@ export default function OccupancyDetailPage() {
                 </div>
               </div>
               <TrendChart
-                points={detail.trend
-                  .filter((t) => trendMode === "units" || t.totalUnits > 0)
-                  .map((t) => {
-                    const rate = t.totalUnits > 0 ? (t.occupiedUnits / t.totalUnits) * 100 : 0;
-                    const units = `${t.occupiedUnits.toLocaleString("id-ID")} dari ${t.totalUnits.toLocaleString("id-ID")} unit`;
-                    return trendMode === "percent"
-                      ? { date: t.date, value: rate, note: units }
-                      : { date: t.date, value: t.occupiedUnits, note: `${formatRate(rate)} occupancy` };
-                  })}
+                points={chartPoints(detail.trend, trendMode)}
                 highlightDate={detail.compareTo.available ? detail.compareTo.resolvedDate : undefined}
                 formatValue={trendMode === "percent" ? formatRate : undefined}
                 formatTick={trendMode === "percent" ? (v) => `${v.toLocaleString("id-ID")}%` : undefined}
                 unitSuffix={trendMode === "percent" ? "" : " unit"}
               />
             </section>
+
+            {detail.siteTrends.length > 0 && (
+              <section className="mb-8">
+                <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
+                  <p className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
+                    Per lokasi
+                  </p>
+                  <p className="text-xs" style={{ color: "var(--text-muted)" }}>
+                    Perubahan vs {compareLabel} · skala grafik per lokasi
+                  </p>
+                </div>
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                  {detail.siteTrends.map((site) => (
+                    <div
+                      key={site.siteId}
+                      className="flex flex-col rounded-2xl border p-4"
+                      style={{ background: "var(--surface-1)", borderColor: "var(--gridline)" }}
+                    >
+                      <p className="truncate text-sm font-medium" style={{ color: "var(--text-secondary)" }} title={site.siteName}>
+                        {site.siteName}
+                      </p>
+                      <div className="mt-1 flex flex-wrap items-baseline justify-between gap-2">
+                        <p className="text-xl font-semibold" style={{ color: "var(--text-primary)" }}>
+                          {trendMode === "percent" ? formatRate(site.occupancyRate) : site.occupiedUnits.toLocaleString("id-ID")}
+                          <span className="ml-1.5 text-xs font-normal" style={{ color: "var(--text-muted)" }}>
+                            {trendMode === "percent"
+                              ? `${site.occupiedUnits.toLocaleString("id-ID")}/${site.totalUnits.toLocaleString("id-ID")} unit`
+                              : `dari ${site.totalUnits.toLocaleString("id-ID")} unit`}
+                          </span>
+                        </p>
+                        <DeltaBadge
+                          value={
+                            site.compare === null
+                              ? null
+                              : trendMode === "percent"
+                                ? site.occupancyRate - site.compare.occupancyRate
+                                : site.occupiedUnits - site.compare.occupiedUnits
+                          }
+                          format={trendMode === "percent" ? "points" : "integer"}
+                        />
+                      </div>
+                      {site.compare === null && (
+                        <p className="mt-1 text-xs" style={{ color: "var(--text-muted)" }}>
+                          {site.trend.length > 0
+                            ? `Belum ada data pada tanggal pembanding · data sejak ${new Date(`${site.trend[0].date}T00:00:00`).toLocaleDateString("id-ID", { day: "numeric", month: "short", year: "numeric" })}`
+                            : "Belum ada riwayat snapshot"}
+                        </p>
+                      )}
+                      <div className="mt-auto pt-2">
+                        <TrendChart
+                          compact
+                          points={chartPoints(site.trend, trendMode)}
+                          highlightDate={site.compare ? detail.compareTo.resolvedDate : undefined}
+                          domain={
+                            detail.trend.length > 0
+                              ? { start: detail.trend[0].date, end: detail.trend[detail.trend.length - 1].date }
+                              : undefined
+                          }
+                          formatValue={trendMode === "percent" ? formatRate : undefined}
+                          unitSuffix={trendMode === "percent" ? "" : " unit"}
+                        />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </section>
+            )}
 
             <section
               className="mb-8 rounded-2xl border p-6"

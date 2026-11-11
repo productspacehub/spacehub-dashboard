@@ -86,6 +86,25 @@ export async function getTrend(since: string): Promise<TrendPoint[]> {
   }));
 }
 
+// The same trend, one series per site.
+export async function getTrendBySite(since: string): Promise<Map<string, TrendPoint[]>> {
+  const rows = await query<{ snapshot_date: string; site_id: string; occupied: number; total: number }>(
+    `SELECT to_char(snapshot_date, 'YYYY-MM-DD') AS snapshot_date, site_id,
+            occupied_units AS occupied, total_units AS total
+     FROM occupancy_snapshots
+     WHERE snapshot_date >= $1
+     ORDER BY site_id, snapshot_date ASC`,
+    [since]
+  );
+  const bySite = new Map<string, TrendPoint[]>();
+  for (const r of rows) {
+    const list = bySite.get(r.site_id) ?? [];
+    list.push({ date: r.snapshot_date, occupiedUnits: Number(r.occupied), totalUnits: Number(r.total) });
+    bySite.set(r.site_id, list);
+  }
+  return bySite;
+}
+
 // "compareTo" preset resolution shared by the summary and detail routes.
 export function resolveCompareDate(param: string): string {
   if (param === "yesterday") return jakartaDaysAgo(1);
@@ -107,8 +126,22 @@ export type StatusBreakdownWithDelta = StatusBreakdown & { delta: number | null 
 // in percent — same definition as the live rate; null without a snapshot.
 export type CompareInfo = { requested: string; resolvedDate: string; available: boolean; occupancyRate: number | null };
 
+// One location's card under the main trend: live numbers now, the snapshot
+// on the comparison date (null without one), and its trend.
+export type SiteTrend = {
+  siteId: string;
+  siteName: string;
+  occupiedUnits: number;
+  totalUnits: number;
+  occupancyRate: number;
+  compare: { occupiedUnits: number; totalUnits: number; occupancyRate: number } | null;
+  trend: TrendPoint[];
+};
+
 export type UnitsDetailWithComparison = Omit<UnitsDetail, "breakdown"> & {
   breakdown: StatusBreakdownWithDelta[];
   trend: TrendPoint[];
   compareTo: CompareInfo;
+  // Sites with at least one non-archived unit, highest occupancy first.
+  siteTrends: SiteTrend[];
 };
