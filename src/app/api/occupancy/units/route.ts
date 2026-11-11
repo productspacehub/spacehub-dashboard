@@ -29,6 +29,7 @@ export async function GET(request: NextRequest) {
       delta: null,
     }));
     let comparisonAvailable = false;
+    let compareRate: number | null = null;
     let trend: TrendPoint[] = [];
 
     try {
@@ -50,6 +51,8 @@ export async function GET(request: NextRequest) {
           compareTotals.blocked += row.blocked_units;
         }
         breakdown = detail.breakdown.map((b) => ({ ...b, delta: b.count - compareTotals[b.state] }));
+        const compareTotal = compareRows.reduce((sum, row) => sum + row.total_units, 0);
+        compareRate = compareTotal > 0 ? (compareTotals.occupied / compareTotal) * 100 : null;
       }
     } catch {
       // no history yet / db unavailable — breakdown keeps delta: null, trend stays []
@@ -59,7 +62,7 @@ export async function GET(request: NextRequest) {
       ...detail,
       breakdown,
       trend,
-      compareTo: { requested: compareToParam, resolvedDate, available: comparisonAvailable },
+      compareTo: { requested: compareToParam, resolvedDate, available: comparisonAvailable, occupancyRate: compareRate },
     };
     return NextResponse.json(response);
   } catch (error) {

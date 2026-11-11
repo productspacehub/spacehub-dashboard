@@ -53,6 +53,20 @@ function formatPct(value: number): string {
   return `${value.toFixed(1)}%`;
 }
 
+// The trend card can show the occupancy rate (default — easier to read) or
+// the count of occupied units. The choice is remembered per browser.
+type TrendMode = "percent" | "units";
+const TREND_MODE_KEY = "occupancy.trendMode";
+const formatRate = (v: number) => `${v.toLocaleString("id-ID", { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%`;
+
+function readTrendMode(): TrendMode {
+  try {
+    return localStorage.getItem(TREND_MODE_KEY) === "units" ? "units" : "percent";
+  } catch {
+    return "percent";
+  }
+}
+
 export default function OccupancyDetailPage() {
   const { data: session } = useSession();
   const [detail, setDetail] = useState<UnitsDetailWithComparison | null>(null);
@@ -62,6 +76,21 @@ export default function OccupancyDetailPage() {
   const [selectedSite, setSelectedSite] = useState<string>("all");
   const [compareTo, setCompareTo] = useState<string>("yesterday");
   const [showDatePicker, setShowDatePicker] = useState(false);
+  const [trendMode, setTrendMode] = useState<TrendMode>("percent");
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- read the saved choice after hydration (localStorage isn't available on the server)
+    setTrendMode(readTrendMode());
+  }, []);
+
+  function chooseTrendMode(mode: TrendMode) {
+    setTrendMode(mode);
+    try {
+      localStorage.setItem(TREND_MODE_KEY, mode);
+    } catch {
+      // storage blocked — the choice just isn't remembered
+    }
+  }
   const abortRef = useRef<AbortController | null>(null);
 
   const load = useCallback(async (compareToValue: string) => {
@@ -263,25 +292,67 @@ export default function OccupancyDetailPage() {
               <div className="mb-3 flex flex-wrap items-baseline justify-between gap-3">
                 <div>
                   <p className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
-                    Tren unit occupied
+                    {trendMode === "percent" ? "Tren occupancy rate" : "Tren unit occupied"}
                   </p>
                   <p className="text-xs" style={{ color: "var(--text-muted)" }}>
                     {trendRangeLabel(detail.trend)}
                     {!detail.compareTo.available && " · belum ada data untuk titik pembanding ini"}
                   </p>
                 </div>
-                <DeltaBadge
-                  value={detail.breakdown.find((b) => b.state === "occupied")?.delta ?? null}
-                  label={`vs ${
-                    compareTo in COMPARE_PRESET_LABELS
-                      ? COMPARE_PRESET_LABELS[compareTo as ComparePreset].toLowerCase()
-                      : detail.compareTo.resolvedDate
-                  }`}
-                />
+                <div className="flex flex-wrap items-center gap-3">
+                  <DeltaBadge
+                    value={
+                      trendMode === "percent"
+                        ? detail.compareTo.occupancyRate === null
+                          ? null
+                          : (detail.breakdown.find((b) => b.state === "occupied")?.percentage ?? 0) -
+                            detail.compareTo.occupancyRate
+                        : (detail.breakdown.find((b) => b.state === "occupied")?.delta ?? null)
+                    }
+                    format={trendMode === "percent" ? "points" : "integer"}
+                    label={`vs ${
+                      compareTo in COMPARE_PRESET_LABELS
+                        ? COMPARE_PRESET_LABELS[compareTo as ComparePreset].toLowerCase()
+                        : detail.compareTo.resolvedDate
+                    }`}
+                  />
+                  <div
+                    role="group"
+                    aria-label="Tampilan tren"
+                    className="inline-flex rounded-full border p-0.5"
+                    style={{ borderColor: "var(--gridline)" }}
+                  >
+                    {(["percent", "units"] as const).map((mode) => (
+                      <button
+                        key={mode}
+                        onClick={() => chooseTrendMode(mode)}
+                        aria-pressed={trendMode === mode}
+                        className="rounded-full px-3 py-1 text-xs font-medium"
+                        style={{
+                          background: trendMode === mode ? "var(--series-1)" : "transparent",
+                          color: trendMode === mode ? "var(--background)" : "var(--text-secondary)",
+                        }}
+                      >
+                        {mode === "percent" ? "%" : "Unit"}
+                      </button>
+                    ))}
+                  </div>
+                </div>
               </div>
               <TrendChart
-                points={detail.trend.map((t) => ({ date: t.date, value: t.occupiedUnits }))}
+                points={detail.trend
+                  .filter((t) => trendMode === "units" || t.totalUnits > 0)
+                  .map((t) => {
+                    const rate = t.totalUnits > 0 ? (t.occupiedUnits / t.totalUnits) * 100 : 0;
+                    const units = `${t.occupiedUnits.toLocaleString("id-ID")} dari ${t.totalUnits.toLocaleString("id-ID")} unit`;
+                    return trendMode === "percent"
+                      ? { date: t.date, value: rate, note: units }
+                      : { date: t.date, value: t.occupiedUnits, note: `${formatRate(rate)} occupancy` };
+                  })}
                 highlightDate={detail.compareTo.available ? detail.compareTo.resolvedDate : undefined}
+                formatValue={trendMode === "percent" ? formatRate : undefined}
+                formatTick={trendMode === "percent" ? (v) => `${v.toLocaleString("id-ID")}%` : undefined}
+                unitSuffix={trendMode === "percent" ? "" : " unit"}
               />
             </section>
 

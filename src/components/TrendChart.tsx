@@ -2,7 +2,10 @@
 
 import { useState } from "react";
 
-type TrendPoint = { date: string; value: number };
+// note: an extra line in the hover tooltip (e.g. the unit count behind a rate).
+type TrendPoint = { date: string; value: number; note?: string };
+
+const defaultFormat = (v: number) => v.toLocaleString("id-ID");
 
 function formatDateLabel(dateStr: string, withYear = false): string {
   return new Date(`${dateStr}T00:00:00`).toLocaleDateString("id-ID", {
@@ -31,11 +34,28 @@ function niceTicks(min: number, max: number, targetCount = 3): number[] {
   const niceMin = Math.floor(min / step) * step;
   const niceMax = Math.ceil(max / step) * step;
   const ticks: number[] = [];
-  for (let v = niceMin; v <= niceMax + step * 0.5; v += step) ticks.push(Math.round(v));
+  // Round to the step's own precision: whole numbers for unit counts, a
+  // decimal for a narrow band of percentages, without float noise (0.30000004).
+  const decimals = Math.max(0, -Math.floor(Math.log10(step)));
+  for (let v = niceMin; v <= niceMax + step * 0.5; v += step) ticks.push(Number(v.toFixed(decimals)));
   return ticks;
 }
 
-export function TrendChart({ points, highlightDate }: { points: TrendPoint[]; highlightDate?: string }) {
+export function TrendChart({
+  points,
+  highlightDate,
+  formatValue = defaultFormat,
+  formatTick = formatValue,
+  unitSuffix = " unit",
+}: {
+  points: TrendPoint[];
+  highlightDate?: string;
+  formatValue?: (v: number) => string;
+  // Y-axis labels; defaults to formatValue.
+  formatTick?: (v: number) => string;
+  // Appended to the value in the hover tooltip only.
+  unitSuffix?: string;
+}) {
   const [hover, setHover] = useState<{ index: number; left: number } | null>(null);
 
   if (points.length < 2) {
@@ -198,7 +218,7 @@ export function TrendChart({ points, highlightDate }: { points: TrendPoint[]; hi
             color: "var(--text-muted)",
           }}
         >
-          {t.toLocaleString("id-ID")}
+          {formatTick(t)}
         </span>
       ))}
 
@@ -228,7 +248,7 @@ export function TrendChart({ points, highlightDate }: { points: TrendPoint[]; hi
             color: "var(--text-secondary)",
           }}
         >
-          {points[highlightIndex].value.toLocaleString("id-ID")}
+          {formatValue(points[highlightIndex].value)}
         </span>
       )}
       <span
@@ -240,7 +260,7 @@ export function TrendChart({ points, highlightDate }: { points: TrendPoint[]; hi
           color: "var(--text-primary)",
         }}
       >
-        {points[lastIndex].value.toLocaleString("id-ID")}
+        {formatValue(points[lastIndex].value)}
       </span>
 
       {hoverPoint && (
@@ -254,8 +274,10 @@ export function TrendChart({ points, highlightDate }: { points: TrendPoint[]; hi
         >
           <p style={{ color: "var(--text-muted)" }}>{formatDateLabel(hoverPoint.date, withYear)}</p>
           <p className="font-semibold" style={{ color: "var(--text-primary)" }}>
-            {hoverPoint.value.toLocaleString("id-ID")} unit
+            {formatValue(hoverPoint.value)}
+            {unitSuffix}
           </p>
+          {hoverPoint.note && <p style={{ color: "var(--text-muted)" }}>{hoverPoint.note}</p>}
         </div>
       )}
     </div>

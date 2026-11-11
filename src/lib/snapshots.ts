@@ -103,7 +103,9 @@ export type OccupancySnapshotWithDelta = Omit<OccupancySnapshot, "sites" | "over
 
 export type StatusBreakdownWithDelta = StatusBreakdown & { delta: number | null };
 
-export type CompareInfo = { requested: string; resolvedDate: string; available: boolean };
+// occupancyRate: occupied / total (non-archived) units on the comparison date,
+// in percent — same definition as the live rate; null without a snapshot.
+export type CompareInfo = { requested: string; resolvedDate: string; available: boolean; occupancyRate: number | null };
 
 export type UnitsDetailWithComparison = Omit<UnitsDetail, "breakdown"> & {
   breakdown: StatusBreakdownWithDelta[];
