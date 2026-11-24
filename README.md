@@ -675,6 +675,17 @@ Open [http://localhost:3000](http://localhost:3000) — you'll be redirected to
   unauthenticated request to a page redirects to `/login`, and to an API
   route gets a `401` JSON response instead of the app's data.
 
+- **Daily Slack digest data** (`GET /api/digest`, `src/lib/digest.ts`). This
+  app doesn't talk to Slack: [spacehub-slack-notifier](https://github.com/productspacehub/spacehub-slack-notifier)
+  calls this endpoint at 07:55 WIB, formats the figures and posts them to the
+  management channel. It returns yesterday's figures and the month through
+  yesterday, paced against the same days last month, for occupancy, cash-in,
+  move activity and booking activity. It uses the same report functions as the
+  home page cards, so the digest always matches the dashboard. Each section
+  succeeds or fails on its own (`{ ok, data | error }`). The endpoint is
+  excluded from the login proxy and guarded by `DIGEST_API_SECRET` instead; it
+  refuses every request if that's unset.
+
 ## Deploying
 
 Deploy to Vercel and set these environment variables in the project settings
@@ -685,6 +696,8 @@ Deploy to Vercel and set these environment variables in the project settings
 - `DATABASE_URL` — auto-added when you connect a Postgres storage (Neon) to
   the project under Settings > Storage; no manual setup needed
 - `CRON_SECRET` — generate with `openssl rand -base64 33`
+- `DIGEST_API_SECRET` — shared with spacehub-slack-notifier for `/api/digest`;
+  generate with `openssl rand -base64 33`
 - `EXTRA_ALLOWED_EMAILS` (optional) — comma-separated exact emails to let in
   besides `@spacehub.id`, e.g. an external stakeholder's personal Gmail
 
