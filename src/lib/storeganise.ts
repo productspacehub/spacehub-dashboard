@@ -68,12 +68,6 @@ export type StoreganiseInvoice = {
   paid?: string;
 };
 
-export type StoreganiseInvoiceDetail = StoreganiseInvoice & {
-  total?: number;
-  siteId?: string;
-  owner?: { id: string; name?: string; email?: string };
-};
-
 export type SiteOccupancy = {
   siteId: string;
   siteName: string;
@@ -177,67 +171,6 @@ async function fetchRecentInvoices(): Promise<StoreganiseInvoice[]> {
   since.setDate(since.getDate() - RECENT_INVOICE_WINDOW_DAYS);
   const start = since.toISOString().slice(0, 10);
   return paginate<StoreganiseInvoice>(`/v1/admin/invoices?start=${start}`);
-}
-
-// Reconciliation window for the paid-invoice-notification cron: only needs to cover the
-// gap since the last run (this cron runs daily), so a few days is enough margin without
-// re-scanning the same large window fetchRecentInvoices() uses for occupancy matching.
-const RECONCILE_PAID_INVOICES_WINDOW_DAYS = 3;
-
-export async function fetchRecentlyPaidInvoices(): Promise<StoreganiseInvoice[]> {
-  const since = new Date();
-  since.setDate(since.getDate() - RECONCILE_PAID_INVOICES_WINDOW_DAYS);
-  const start = since.toISOString().slice(0, 10);
-  return paginate<StoreganiseInvoice>(`/v1/admin/invoices?state=paid&start=${start}`);
-}
-
-export async function fetchInvoiceById(invoiceId: string): Promise<StoreganiseInvoiceDetail> {
-  const url = new URL(`${BASE_URL}/v1/admin/invoices/${invoiceId}`);
-  url.searchParams.set("include", "owner");
-
-  const res = await fetch(url, { headers: authHeaders(), cache: "no-store" });
-  if (!res.ok) {
-    throw new Error(`Storeganise API error ${res.status} fetching invoice ${invoiceId}: ${await res.text()}`);
-  }
-  return res.json();
-}
-
-export type StoreganiseInvoiceAction = {
-  id: string;
-  type: string;
-  date: string;
-};
-
-// invoice.paid (and payments[].date/created) were found to be date-only with no
-// time-of-day for manually-entered payments — always midnight UTC, regardless of when
-// the payment was actually recorded. The invoice's action history has full-precision
-// timestamps instead (confirmed against a real "markInvoicePaid" action, milliseconds
-// included, matching the exact time shown in Storeganise's own dashboard timeline).
-export async function fetchInvoiceActions(invoiceId: string): Promise<StoreganiseInvoiceAction[]> {
-  const url = new URL(`${BASE_URL}/v1/admin/invoices/${invoiceId}/actions`);
-
-  const res = await fetch(url, { headers: authHeaders(), cache: "no-store" });
-  if (!res.ok) {
-    throw new Error(`Storeganise API error ${res.status} fetching actions for invoice ${invoiceId}: ${await res.text()}`);
-  }
-  return res.json();
-}
-
-export type StoreganiseUser = {
-  id: string;
-  name?: string;
-  email?: string;
-  phone?: string;
-};
-
-export async function fetchUserById(userId: string): Promise<StoreganiseUser> {
-  const url = new URL(`${BASE_URL}/v1/admin/users/${userId}`);
-
-  const res = await fetch(url, { headers: authHeaders(), cache: "no-store" });
-  if (!res.ok) {
-    throw new Error(`Storeganise API error ${res.status} fetching user ${userId}: ${await res.text()}`);
-  }
-  return res.json();
 }
 
 // There's no bulk/multi-unit way to read a unit's action history, so this is one API
